@@ -322,7 +322,8 @@
           });
 
           setNodes((prev) => ({ ...prev, [id]: newNode }));
-          setActiveId(id);
+          // Keep the original branch focused so repeated forks create siblings from the same parent.
+          setActiveId(fromId);
           setPositions((prev) => ({
             ...prev,
             [id]: { x: 520 + Object.keys(prev).length * 22, y: 160 + Object.keys(prev).length * 18 },
