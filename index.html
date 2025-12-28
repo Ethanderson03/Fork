@@ -81,12 +81,10 @@
         return (
           <aside className="sidebar">
             <div className="sidebar-header">
-              <h1>Forkable Chats</h1>
-              <p className="hint">
-                Highlight any reply and click <strong>Fork selection</strong> to spawn a detachable side chat. Each fork keeps the parent context.
-              </p>
+              <h1>Forkable chats</h1>
+              <p className="hint">Highlight a reply to branch it.</p>
               <button className="primary-btn full-width" onClick={onNewChat}>
-                + New chat
+                New chat
               </button>
             </div>
             <ul className="tree-list">{renderNode(tree)}</ul>
@@ -126,21 +124,19 @@
           <div className="composer">
             <form onSubmit={handleSubmit}>
               <textarea
-                placeholder="Ask a question or leave a note..."
+                placeholder="Ask or note something..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 disabled={disabled}
               ></textarea>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <button type="submit" className="primary-btn" disabled={disabled}>
-                  Send
-                </button>
-                <button type="button" className="secondary-btn" onClick={handleFork}>
-                  Fork selection
-                </button>
-              </div>
+              <button type="submit" className="primary-btn" disabled={disabled}>
+                Send
+              </button>
+              <button type="button" className="ghost-btn" onClick={handleFork}>
+                Fork
+              </button>
             </form>
-            <div className="footer-hint">Highlight text in any assistant reply to fork that context into a new chat.</div>
+            <div className="footer-hint">Highlight text in a reply to fork it.</div>
           </div>
         );
       }
@@ -198,13 +194,15 @@
                 <div className="meta" style={{ fontSize: 12 }}>Depth {node.depth}</div>
               </div>
               <div className="modal-actions">
-                <button className="ghost-btn" onClick={() => onJump(node.parentId || "root")}>Center</button>
-                <button className="secondary-btn" onClick={() => onMinimize(node.id)}>{minimized ? "Restore" : "Minimize"}</button>
-                <button className="secondary-btn" onClick={() => onClose(node.id)}>✕</button>
+                <button className="ghost-btn" onClick={() => onJump(node.parentId || "root")} title="Jump to parent">⤶</button>
+                <button className="ghost-btn" onClick={() => onMinimize(node.id)} title="Toggle minimize">
+                  {minimized ? "▣" : "▢"}
+                </button>
+                <button className="ghost-btn" onClick={() => onClose(node.id)} title="Close">✕</button>
               </div>
             </div>
-            <div className={minimized ? "minimized" : ""}>
-              <div className="chat-body" style={{ height: 240 }}>
+            <div className={`modal-content ${minimized ? "minimized" : ""}`}>
+              <div className="chat-body">
                 <MessageList messages={node.messages} />
               </div>
               <Composer onSend={(text) => onSend(node.id, text)} onFork={(text) => onFork(node.id, text)} />
