@@ -23,6 +23,7 @@ body {
   color: var(--text);
   min-height: 100vh;
   display: flex;
+  overflow: hidden;
 }
 
 .app-shell {
@@ -31,6 +32,8 @@ body {
   width: 100%;
   min-height: 100vh;
   position: relative;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
 .sidebar {
@@ -141,16 +144,23 @@ body {
 
 .main {
   padding: 26px;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 
 .chat-panel {
-  max-width: 960px;
+  width: min(920px, 100%);
   margin: 0 auto;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 18px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 64px);
 }
 
 
@@ -171,7 +181,7 @@ body {
 
 .chat-body {
   padding: 18px 20px 8px;
-  height: 62vh;
+  flex: 1;
   overflow-y: auto;
   background: #ffffff;
 }
@@ -211,8 +221,10 @@ body {
 
 
 .composer form {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   gap: 10px;
+  align-items: center;
 }
 
 textarea {
@@ -315,12 +327,17 @@ button {
 
 .modal-window {
   position: fixed;
-  width: 340px;
+  width: 360px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   z-index: 10;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  resize: both;
+  min-width: 300px;
+  min-height: 320px;
 }
 
 .modal-header {
@@ -336,6 +353,17 @@ button {
 .modal-window .chat-body {
   background: #ffffff;
   border-bottom: 1px solid var(--border);
+}
+
+.modal-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.modal-content .chat-body {
+  flex: 1;
+  min-height: 140px;
 }
 
 
