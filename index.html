@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Learnly - Branchable Chats</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useEffect, useState, useMemo, useRef } = React;
+
+      const initialRootMessages = [
+        {
+          role: "assistant",
+          text: "Welcome! Ask any question to begin. Highlight text in my replies and fork side conversations that stay connected to this main thread.",
+        },
+      ];
+
+      const createNode = ({ id, parentId = null, title, messages, status = "open" }) => ({
+        id,
+        parentId,
+        title,
+        messages,
+        status,
+      });
+
+      const selectionText = () => {
+        const text = window.getSelection().toString();
+        return text.trim();
+      };
+
+      const summarizeMessages = (messages) => {
+        if (!messages || messages.length === 0) return "No messages to merge.";
+        const trimmed = messages
+          .filter((m) => m.role !== "system")
+          .map((m) => `${m.role}: ${m.text}`)
+          .slice(-6);
+        return trimmed.join(" \n ");
+      };
+
+      function Sidebar({ tree, activeId, onSelect }) {
+        const renderNode = (node, depth = 0) => (
+          <li key={node.id}>
+            <div
+              className={`tree-node ${activeId === node.id ? "active" : ""}`}
+              onClick={() => onSelect(node.id)}
+            >
+              <div className="title">
+                <span>{node.title}</span>
+                <span className="badge">{node.layerLabel}</span>
+              </div>
+              <div className="meta">
+                {node.children.length} fork{node.children.length === 1 ? "" : "s"} • {node.messages.length} message{node.messages.length === 1 ? "" : "s"}
+              </div>
+            </div>
+            {node.children.length > 0 && (
+              <ul className="tree-children">
+                {node.children.map((child) => renderNode(child, depth + 1))}
+              </ul>
+            )}
+          </li>
+        );
+
+        return (
+          <aside className="sidebar">
+            <h1>Forkable Chats</h1>
+            <p className="hint">
+              Highlight any reply and click <strong>Fork selection</strong> to spawn a detachable side chat. Each fork keeps the parent context.
+            </p>
+            <ul className="tree-list">{renderNode(tree)}</ul>
+          </aside>
+        );
+      }
+
+      function MessageList({ messages }) {
+        if (!messages.length) {
+          return <div className="empty">No messages yet. Ask something to get started.</div>;
+        }
+        return messages.map((msg, index) => (
+          <div className={`message ${msg.role === "user" ? "user" : "assistant"}`} key={index}>
+            <div className="role">{msg.role}</div>
+            {msg.origin && <div className="meta">Context: {msg.origin}</div>}
+            <p>{msg.text}</p>
+          </div>
+        ));
+      }
+
+      function Composer({ onSend, disabled, onFork }) {
+        const [input, setInput] = useState("");
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!input.trim()) return;
+          onSend(input.trim());
+          setInput("");
+        };
+
+        const handleFork = () => {
+          const text = selectionText();
+          onFork(text);
+        };
+
+        return (
+          <div className="composer">
+            <form onSubmit={handleSubmit}>
+              <textarea
+                placeholder="Ask a question or leave a note..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                disabled={disabled}
+              ></textarea>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <button type="submit" className="primary-btn" disabled={disabled}>
+                  Send
+                </button>
+                <button type="button" className="secondary-btn" onClick={handleFork}>
+                  Fork selection
+                </button>
+              </div>
+            </form>
+            <div className="footer-hint">Highlight text in any assistant reply to fork that context into a new chat.</div>
+          </div>
+        );
+      }
+
+      function ChatPanel({ node, onSend, onFork }) {
+        return (
+          <div className="chat-panel">
+            <div className="chat-header">
+              <div>
+                <h2>{node.title}</h2>
+                <div className="meta-row">
+                  <span className="timeline-chip">Branch depth: {node.depth}</span>
+                  <span className="timeline-chip">Messages: {node.messages.length}</span>
+                </div>
+              </div>
+              <div className="badge">Active</div>
+            </div>
+            <div className="chat-body">
+              <MessageList messages={node.messages} />
+            </div>
+            <Composer onSend={onSend} onFork={onFork} />
+          </div>
+        );
+      }
+
+      function ModalChat({
+        node,
+        position,
+        onSend,
+        onFork,
+        onClose,
+        onMinimize,
+        minimized,
+        onStartDrag,
+      }) {
+        const style = {
+          top: position?.y || 120,
+          left: position?.x || 520,
+        };
+
+        return (
+          <div className="modal-window" style={style}>
+            <div className="modal-header" onMouseDown={(e) => onStartDrag(node.id, e)}>
+              <div>
+                <strong>{node.title}</strong>
+                <div className="meta" style={{ fontSize: 12 }}>Depth {node.depth}</div>
+              </div>
+              <div className="modal-actions">
+                <button className="secondary-btn" onClick={() => onMinimize(node.id)}>{minimized ? "Restore" : "Minimize"}</button>
+                <button className="secondary-btn" onClick={() => onClose(node.id)}>✕</button>
+              </div>
+            </div>
+            <div className={minimized ? "minimized" : ""}>
+              <div className="chat-body" style={{ height: 240 }}>
+                <MessageList messages={node.messages} />
+              </div>
+              <Composer onSend={(text) => onSend(node.id, text)} onFork={(text) => onFork(node.id, text)} />
+            </div>
+          </div>
+        );
+      }
+
+      function App() {
+        const [nodes, setNodes] = useState({
+          root: createNode({ id: "root", title: "Main Chat", messages: initialRootMessages, parentId: null }),
+        });
+        const [activeId, setActiveId] = useState("root");
+        const [positions, setPositions] = useState({});
+        const [minimized, setMinimized] = useState({});
+        const dragRef = useRef(null);
+
+        const tree = useMemo(() => {
+          const childrenMap = {};
+          Object.values(nodes).forEach((node) => {
+            if (node.parentId) {
+              childrenMap[node.parentId] = childrenMap[node.parentId] || [];
+              childrenMap[node.parentId].push(node);
+            }
+          });
+
+          const attach = (node, depth = 0) => {
+            const enriched = {
+              ...node,
+              depth,
+              messages: node.messages,
+              children: (childrenMap[node.id] || []).map((child) => attach(child, depth + 1)),
+              layerLabel: depth === 0 ? "Layer 0" : `Layer ${depth}`,
+            };
+            return enriched;
+          };
+          return attach(nodes.root, 0);
+        }, [nodes]);
+
+        const openModals = useMemo(() =>
+          Object.values(nodes)
+            .filter((n) => n.id !== "root" && n.status !== "closed")
+            .map((n) => n.id),
+        [nodes]);
+
+        useEffect(() => {
+          const handleMouseMove = (e) => {
+            if (!dragRef.current) return;
+            const { id, offsetX, offsetY } = dragRef.current;
+            setPositions((prev) => ({
+              ...prev,
+              [id]: { x: e.clientX - offsetX, y: e.clientY - offsetY },
+            }));
+          };
+
+          const handleMouseUp = () => {
+            dragRef.current = null;
+          };
+
+          document.addEventListener("mousemove", handleMouseMove);
+          document.addEventListener("mouseup", handleMouseUp);
+          return () => {
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+          };
+        }, []);
+
+        const addMessages = (id, newMessages) => {
+          setNodes((prev) => ({
+            ...prev,
+            [id]: {
+              ...prev[id],
+              messages: [...prev[id].messages, ...newMessages],
+            },
+          }));
+        };
+
+        const simulateAssistant = (question, fromId) => {
+          const parent = nodes[fromId];
+          const context = parent.messages
+            .slice(-3)
+            .map((m) => `${m.role}: ${m.text}`)
+            .join(" | ");
+          return `Pulling from ${parent.title}'s context: ${context || "fresh start"}. Here's a helpful follow-up on "${question}".`;
+        };
+
+        const handleSend = (id, text) => {
+          addMessages(id, [
+            { role: "user", text },
+            { role: "assistant", text: simulateAssistant(text, id) },
+          ]);
+        };
+
+        const makeTitle = (parentTitle, selection) => {
+          if (selection) return `Fork of ${parentTitle}: "${selection.slice(0, 24)}..."`;
+          return `Fork of ${parentTitle}`;
+        };
+
+        const handleFork = (fromId, explicitSelection) => {
+          const base = nodes[fromId];
+          const picked = (explicitSelection && explicitSelection.trim()) || selectionText();
+          const contextSnippet = picked || base.messages.slice(-1).map((m) => m.text).join(" ");
+          const id = `chat-${Date.now()}-${Math.round(Math.random() * 9999)}`;
+          const newNode = createNode({
+            id,
+            parentId: fromId,
+            title: makeTitle(base.title, contextSnippet),
+            messages: [
+              {
+                role: "system",
+                origin: base.title,
+                text: `Imported from ${base.title}: ${contextSnippet || "continuing without a selection."}`,
+              },
+              { role: "assistant", text: "What would you like to explore in this branch?" },
+            ],
+          });
+
+          setNodes((prev) => ({ ...prev, [id]: newNode }));
+          setActiveId(id);
+          setPositions((prev) => ({
+            ...prev,
+            [id]: { x: 520 + Object.keys(prev).length * 22, y: 160 + Object.keys(prev).length * 18 },
+          }));
+        };
+
+        const handleClose = (id) => {
+          const node = nodes[id];
+          const summary = summarizeMessages(node.messages);
+          setNodes((prev) => ({
+            ...prev,
+            root: {
+              ...prev.root,
+              messages: [
+                ...prev.root.messages,
+                { role: "assistant", origin: node.title, text: `Merged notes from ${node.title}: ${summary}` },
+              ],
+            },
+            [id]: { ...node, status: "closed" },
+          }));
+          setMinimized((prev) => ({ ...prev, [id]: false }));
+          setActiveId("root");
+        };
+
+        const handleMinimize = (id) => {
+          setMinimized((prev) => ({ ...prev, [id]: !prev[id] }));
+        };
+
+        const handleStartDrag = (id, event) => {
+          const rect = event.currentTarget.parentElement.getBoundingClientRect();
+          dragRef.current = {
+            id,
+            offsetX: event.clientX - rect.left,
+            offsetY: event.clientY - rect.top,
+          };
+        };
+
+        const selectNode = (id) => {
+          setActiveId(id);
+          if (id !== "root") {
+            setNodes((prev) => ({ ...prev, [id]: { ...prev[id], status: "open" } }));
+          }
+        };
+
+        const flattenTree = (node, depth = 0) => {
+          const current = { ...node, depth };
+          const children = node.children || [];
+          return [current, ...children.flatMap((child) => flattenTree(child, depth + 1))];
+        };
+
+        const nodesById = useMemo(() => {
+          const list = flattenTree(tree);
+          return list.reduce((acc, n) => ({ ...acc, [n.id]: n }), {});
+        }, [tree]);
+
+        return (
+          <div className="app-shell">
+            <Sidebar tree={tree} activeId={activeId} onSelect={selectNode} />
+            <main className="main">
+              <ChatPanel
+                node={nodesById[activeId] || nodesById.root}
+                onSend={(text) => handleSend(activeId, text)}
+                onFork={() => handleFork(activeId)}
+              />
+            </main>
+
+            {openModals.map((id) => (
+              <ModalChat
+                key={id}
+                node={nodesById[id]}
+                position={positions[id]}
+                minimized={minimized[id]}
+                onSend={handleSend}
+                onFork={(text) => handleFork(id, text)}
+                onClose={handleClose}
+                onMinimize={handleMinimize}
+                onStartDrag={handleStartDrag}
+              />
+            ))}
+          </div>
+        );
+      }
+
+      const container = document.getElementById("root");
+      const root = ReactDOM.createRoot(container);
+      root.render(<App />);
+    </script>
+  </body>
+</html>
