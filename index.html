@@ -28,12 +28,13 @@
         },
       ];
 
-      const createNode = ({ id, parentId = null, title, messages, status = "open" }) => ({
+      const createNode = ({ id, parentId = null, title, messages, status = "open", createdAt = Date.now() }) => ({
         id,
         parentId,
         title,
         messages,
         status,
+        createdAt,
       });
 
       const selectionText = () => {
@@ -53,16 +54,20 @@
       function Sidebar({ tree, activeId, onSelect }) {
         const renderNode = (node, depth = 0) => (
           <li key={node.id}>
-            <div
-              className={`tree-node ${activeId === node.id ? "active" : ""}`}
-              onClick={() => onSelect(node.id)}
-            >
-              <div className="title">
-                <span>{node.title}</span>
-                <span className="badge">{node.layerLabel}</span>
-              </div>
-              <div className="meta">
-                {node.children.length} fork{node.children.length === 1 ? "" : "s"} • {node.messages.length} message{node.messages.length === 1 ? "" : "s"}
+            <div className={`tree-branch depth-${depth}`}>
+              <div className="branch-line" aria-hidden />
+              <div
+                className={`tree-node ${activeId === node.id ? "active" : ""}`}
+                onClick={() => onSelect(node.id)}
+              >
+                <div className="title">
+                  <span className="dot" aria-hidden />
+                  <span className="text">{node.title}</span>
+                  <span className="badge">{node.layerLabel}</span>
+                </div>
+                <div className="meta">
+                  {node.children.length} fork{node.children.length === 1 ? "" : "s"} • {node.messages.length} message{node.messages.length === 1 ? "" : "s"}
+                </div>
               </div>
             </div>
             {node.children.length > 0 && (
@@ -75,10 +80,12 @@
 
         return (
           <aside className="sidebar">
-            <h1>Forkable Chats</h1>
-            <p className="hint">
-              Highlight any reply and click <strong>Fork selection</strong> to spawn a detachable side chat. Each fork keeps the parent context.
-            </p>
+            <div className="sidebar-header">
+              <h1>Forkable Chats</h1>
+              <p className="hint">
+                Highlight any reply and click <strong>Fork selection</strong> to spawn a detachable side chat. Each fork keeps the parent context.
+              </p>
+            </div>
             <ul className="tree-list">{renderNode(tree)}</ul>
           </aside>
         );
@@ -135,12 +142,20 @@
         );
       }
 
-      function ChatPanel({ node, onSend, onFork }) {
+      function ChatPanel({ node, onSend, onFork, lineage, onJump }) {
         return (
           <div className="chat-panel">
             <div className="chat-header">
               <div>
                 <h2>{node.title}</h2>
+                <div className="breadcrumbs">
+                  {lineage.map((item, idx) => (
+                    <span key={item.id} className="crumb" onClick={() => onJump(item.id)}>
+                      {item.title}
+                      {idx < lineage.length - 1 && <span className="crumb-divider">/</span>}
+                    </span>
+                  ))}
+                </div>
                 <div className="meta-row">
                   <span className="timeline-chip">Branch depth: {node.depth}</span>
                   <span className="timeline-chip">Messages: {node.messages.length}</span>
@@ -165,6 +180,7 @@
         onMinimize,
         minimized,
         onStartDrag,
+        onJump,
       }) {
         const style = {
           top: position?.y || 120,
@@ -179,6 +195,7 @@
                 <div className="meta" style={{ fontSize: 12 }}>Depth {node.depth}</div>
               </div>
               <div className="modal-actions">
+                <button className="ghost-btn" onClick={() => onJump(node.parentId || "root")}>Center</button>
                 <button className="secondary-btn" onClick={() => onMinimize(node.id)}>{minimized ? "Restore" : "Minimize"}</button>
                 <button className="secondary-btn" onClick={() => onClose(node.id)}>✕</button>
               </div>
@@ -216,7 +233,9 @@
               ...node,
               depth,
               messages: node.messages,
-              children: (childrenMap[node.id] || []).map((child) => attach(child, depth + 1)),
+              children: (childrenMap[node.id] || [])
+                .sort((a, b) => a.createdAt - b.createdAt)
+                .map((child) => attach(child, depth + 1)),
               layerLabel: depth === 0 ? "Layer 0" : `Layer ${depth}`,
             };
             return enriched;
@@ -359,6 +378,16 @@
           return list.reduce((acc, n) => ({ ...acc, [n.id]: n }), {});
         }, [tree]);
 
+        const lineage = useMemo(() => {
+          const path = [];
+          let cursor = nodesById[activeId];
+          while (cursor) {
+            path.unshift(cursor);
+            cursor = cursor.parentId ? nodesById[cursor.parentId] : null;
+          }
+          return path;
+        }, [activeId, nodesById]);
+
         return (
           <div className="app-shell">
             <Sidebar tree={tree} activeId={activeId} onSelect={selectNode} />
@@ -367,6 +396,8 @@
                 node={nodesById[activeId] || nodesById.root}
                 onSend={(text) => handleSend(activeId, text)}
                 onFork={() => handleFork(activeId)}
+                lineage={lineage}
+                onJump={selectNode}
               />
             </main>
 
@@ -381,6 +412,7 @@
                 onClose={handleClose}
                 onMinimize={handleMinimize}
                 onStartDrag={handleStartDrag}
+                onJump={selectNode}
               />
             ))}
           </div>
