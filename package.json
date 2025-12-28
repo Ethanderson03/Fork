@@ -1,0 +1,13 @@
+{
+  "name": "learnly",
+  "version": "1.0.0",
+  "description": "Lightweight in-browser React prototype for branching conversations.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "python -m http.server 4173"
+  },
+  "keywords": ["react", "chat", "forking", "prototype"],
+  "author": "",
+  "license": "MIT"
+}
