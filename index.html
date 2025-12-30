@@ -14,12 +14,39 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   </head>
   <body>
     <div id="root"></div>
 
     <script type="text/babel">
       const { useEffect, useState, useMemo, useRef, useCallback } = React;
+
+      // Initialize Mermaid with dark theme
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        themeVariables: {
+          primaryColor: '#4a9eff',
+          primaryTextColor: '#e8e8e8',
+          primaryBorderColor: '#4a9eff',
+          lineColor: '#888888',
+          secondaryColor: '#1a1a1a',
+          tertiaryColor: '#222222',
+          background: '#111111',
+          mainBkg: '#1a1a1a',
+          nodeBorder: '#4a9eff',
+          clusterBkg: '#222222',
+          clusterBorder: '#333333',
+          titleColor: '#e8e8e8',
+          edgeLabelBackground: '#1a1a1a',
+        },
+        flowchart: {
+          curve: 'basis',
+          padding: 15,
+        },
+        fontFamily: 'JetBrains Mono, monospace',
+      });
 
       // ============================================
       // CONSTANTS & UTILITIES
@@ -258,77 +285,145 @@
         return { cleanText, suggestions };
       };
 
-      // Simple markdown renderer
+      // Mermaid Diagram Component
+      function MermaidDiagram({ chart, id }) {
+        const containerRef = useRef(null);
+        const [svg, setSvg] = useState('');
+        const [error, setError] = useState(null);
+
+        useEffect(() => {
+          const renderChart = async () => {
+            if (!chart || !containerRef.current) return;
+
+            try {
+              const uniqueId = `mermaid-${id}-${Date.now()}`;
+              const { svg } = await mermaid.render(uniqueId, chart);
+              setSvg(svg);
+              setError(null);
+            } catch (e) {
+              console.warn('Mermaid render error:', e);
+              setError(e.message);
+            }
+          };
+
+          renderChart();
+        }, [chart, id]);
+
+        if (error) {
+          return (
+            <div className="mermaid-error">
+              <code>{chart}</code>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            ref={containerRef}
+            className="mermaid-diagram"
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        );
+      }
+
+      // Simple markdown renderer with Mermaid support
       const renderMarkdown = (text) => {
         if (!text) return null;
 
-        // Split into lines and process
-        const lines = text.split('\n');
-        const elements = [];
-        let listItems = [];
-        let inList = false;
+        // First, extract mermaid blocks
+        const mermaidRegex = /```mermaid\s*([\s\S]*?)```/g;
+        const parts = [];
+        let lastIndex = 0;
+        let match;
+        let mermaidCount = 0;
+
+        while ((match = mermaidRegex.exec(text)) !== null) {
+          // Add text before this mermaid block
+          if (match.index > lastIndex) {
+            parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+          }
+          // Add mermaid block
+          parts.push({ type: 'mermaid', content: match[1].trim(), id: mermaidCount++ });
+          lastIndex = match.index + match[0].length;
+        }
+        // Add remaining text
+        if (lastIndex < text.length) {
+          parts.push({ type: 'text', content: text.slice(lastIndex) });
+        }
+
+        // If no mermaid blocks, use simple text rendering
+        if (parts.length === 0) {
+          parts.push({ type: 'text', content: text });
+        }
 
         const processInline = (line) => {
-          // Bold: **text** or __text__
           line = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
           line = line.replace(/__(.+?)__/g, '<strong>$1</strong>');
-          // Italic: *text* or _text_
           line = line.replace(/\*([^*]+)\*/g, '<em>$1</em>');
           line = line.replace(/_([^_]+)_/g, '<em>$1</em>');
-          // Code: `text`
           line = line.replace(/`([^`]+)`/g, '<code>$1</code>');
           return line;
         };
 
-        lines.forEach((line, idx) => {
-          const trimmed = line.trim();
+        const renderTextBlock = (textContent, keyPrefix) => {
+          const lines = textContent.split('\n');
+          const elements = [];
+          let listItems = [];
+          let inList = false;
 
-          // Bullet list item
-          if (trimmed.match(/^[-*•]\s+/)) {
-            const content = trimmed.replace(/^[-*•]\s+/, '');
-            listItems.push(content);
-            inList = true;
-          } else {
-            // Flush list if we were in one
-            if (inList && listItems.length > 0) {
-              elements.push(
-                <ul key={`list-${idx}`} className="md-list">
-                  {listItems.map((item, i) => (
-                    <li key={i} dangerouslySetInnerHTML={{ __html: processInline(item) }} />
-                  ))}
-                </ul>
-              );
-              listItems = [];
-              inList = false;
-            }
+          lines.forEach((line, idx) => {
+            const trimmed = line.trim();
 
-            // Headers
-            if (trimmed.startsWith('### ')) {
-              elements.push(<h4 key={idx} className="md-h4">{trimmed.slice(4)}</h4>);
-            } else if (trimmed.startsWith('## ')) {
-              elements.push(<h3 key={idx} className="md-h3">{trimmed.slice(3)}</h3>);
-            } else if (trimmed.startsWith('# ')) {
-              elements.push(<h2 key={idx} className="md-h2">{trimmed.slice(2)}</h2>);
-            } else if (trimmed) {
-              elements.push(
-                <p key={idx} dangerouslySetInnerHTML={{ __html: processInline(trimmed) }} />
-              );
+            if (trimmed.match(/^[-*•]\s+/)) {
+              const content = trimmed.replace(/^[-*•]\s+/, '');
+              listItems.push(content);
+              inList = true;
+            } else {
+              if (inList && listItems.length > 0) {
+                elements.push(
+                  <ul key={`${keyPrefix}-list-${idx}`} className="md-list">
+                    {listItems.map((item, i) => (
+                      <li key={i} dangerouslySetInnerHTML={{ __html: processInline(item) }} />
+                    ))}
+                  </ul>
+                );
+                listItems = [];
+                inList = false;
+              }
+
+              if (trimmed.startsWith('### ')) {
+                elements.push(<h4 key={`${keyPrefix}-${idx}`} className="md-h4">{trimmed.slice(4)}</h4>);
+              } else if (trimmed.startsWith('## ')) {
+                elements.push(<h3 key={`${keyPrefix}-${idx}`} className="md-h3">{trimmed.slice(3)}</h3>);
+              } else if (trimmed.startsWith('# ')) {
+                elements.push(<h2 key={`${keyPrefix}-${idx}`} className="md-h2">{trimmed.slice(2)}</h2>);
+              } else if (trimmed) {
+                elements.push(
+                  <p key={`${keyPrefix}-${idx}`} dangerouslySetInnerHTML={{ __html: processInline(trimmed) }} />
+                );
+              }
             }
+          });
+
+          if (listItems.length > 0) {
+            elements.push(
+              <ul key={`${keyPrefix}-list-final`} className="md-list">
+                {listItems.map((item, i) => (
+                  <li key={i} dangerouslySetInnerHTML={{ __html: processInline(item) }} />
+                ))}
+              </ul>
+            );
           }
+
+          return elements;
+        };
+
+        return parts.map((part, idx) => {
+          if (part.type === 'mermaid') {
+            return <MermaidDiagram key={`mermaid-${idx}`} chart={part.content} id={part.id} />;
+          }
+          return <React.Fragment key={`text-${idx}`}>{renderTextBlock(part.content, `t${idx}`)}</React.Fragment>;
         });
-
-        // Flush any remaining list
-        if (listItems.length > 0) {
-          elements.push(
-            <ul key="list-final" className="md-list">
-              {listItems.map((item, i) => (
-                <li key={i} dangerouslySetInnerHTML={{ __html: processInline(item) }} />
-              ))}
-            </ul>
-          );
-        }
-
-        return elements;
       };
 
       // ============================================
@@ -1537,11 +1632,36 @@ ${expertiseContext}
 ${immediateContextSection}
 ${parentContextSection}
 
+## Visual Explanations with Diagrams:
+When explaining concepts with relationships, hierarchies, flows, or dependencies, USE MERMAID DIAGRAMS:
+- **flowchart**: For processes, decisions, or cause-effect relationships
+- **graph**: For concept maps showing how ideas connect
+- **sequenceDiagram**: For interactions or step-by-step processes
+- **classDiagram**: For hierarchies, inheritance, or type relationships
+
+Example usage:
+\`\`\`mermaid
+graph TD
+    A[Main Concept] --> B[Sub-concept 1]
+    A --> C[Sub-concept 2]
+    B --> D[Detail]
+\`\`\`
+
+Use diagrams when they help visualize:
+- How components relate to each other
+- Decision trees or conditional logic
+- Timelines or sequences of events
+- Hierarchies (like taxonomies, org structures, inheritance)
+- Data flow or architecture
+
+Keep diagrams simple - 4-8 nodes max. You can always suggest branching into a subtopic for more detail.
+
 ## Response Style:
 - **Concise over comprehensive** - they can always branch for more
 - Make terms and concepts INTERESTING so users want to click and explore them
 - Use **bold** for key terms that would make good exploration branches
 - Bullet points for listing related concepts
+- Include a diagram when it would clarify relationships
 - NO clarifying questions like "what do you want to focus on?" - just provide content and branches
 
 ## IMPORTANT - End every response with this JSON block:

@@ -1606,3 +1606,37 @@ textarea:disabled {
 .error-dismiss:hover {
   color: var(--text-primary);
 }
+
+/* ============================================
+   MERMAID DIAGRAMS
+   ============================================ */
+.mermaid-diagram {
+  margin: 16px 0;
+  padding: 20px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  margin: 16px 0;
+  padding: 12px;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid var(--accent-danger);
+  border-radius: 4px;
+}
+
+.mermaid-error code {
+  display: block;
+  white-space: pre-wrap;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
