@@ -1535,3 +1535,74 @@ textarea:disabled {
 .message.assistant .message-content::selection {
   background: rgba(74, 158, 255, 0.3);
 }
+
+/* ============================================
+   ERROR TOAST
+   ============================================ */
+.error-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-danger);
+  border-left: 4px solid var(--accent-danger);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(248, 113, 113, 0.2);
+  z-index: 10000;
+  animation: slideUp 0.3s ease;
+  max-width: 500px;
+  cursor: pointer;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.error-icon {
+  font-size: 18px;
+  color: var(--accent-danger);
+}
+
+.error-content {
+  flex: 1;
+}
+
+.error-title {
+  font-weight: 600;
+  color: var(--accent-danger);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.error-message {
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  margin-top: 4px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.error-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.error-dismiss:hover {
+  color: var(--text-primary);
+}

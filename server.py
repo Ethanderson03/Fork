@@ -10,6 +10,7 @@ import os
 import urllib.request
 import urllib.error
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn
 
 PORT = 4173
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
@@ -43,6 +44,7 @@ class LearnlyHandler(SimpleHTTPRequestHandler):
             # Get API key from request header
             api_key = self.headers.get("X-API-Key")
             if not api_key:
+                print("[Stream] ERROR: Missing API key")
                 self.send_json_error(400, "Missing API key")
                 return
 
@@ -51,6 +53,9 @@ class LearnlyHandler(SimpleHTTPRequestHandler):
             system = data.get("system", "You are a helpful learning assistant.")
             model = data.get("model", "claude-sonnet-4-20250514")
             max_tokens = data.get("max_tokens", 2048)
+
+            print(f"[Stream] Request: {len(messages)} messages, model={model}", flush=True)
+            print(f"[Stream] Messages: {messages}", flush=True)
 
             anthropic_payload = {
                 "model": model,
@@ -131,8 +136,14 @@ class LearnlyHandler(SimpleHTTPRequestHandler):
 
         except json.JSONDecodeError:
             self.send_json_error(400, "Invalid JSON")
+        except BrokenPipeError:
+            print(f"[Stream] Client disconnected")
         except Exception as e:
-            self.send_json_error(500, str(e))
+            print(f"[Stream Error] {str(e)}")
+            try:
+                self.send_json_error(500, str(e))
+            except BrokenPipeError:
+                pass
 
     def handle_chat(self):
         """Proxy chat requests to Anthropic API (non-streaming)"""
@@ -245,7 +256,11 @@ def main():
 ╚═══════════════════════════════════════════════════════════╝
     """)
 
-    server = HTTPServer(("", PORT), LearnlyHandler)
+    # Use threading to handle multiple concurrent requests
+    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+
+    server = ThreadingHTTPServer(("", PORT), LearnlyHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

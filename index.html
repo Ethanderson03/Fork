@@ -49,45 +49,89 @@
       // API HELPER - Streaming
       // ============================================
       const streamToClaudeAPI = async (messages, apiKey, model, systemPrompt, onChunk) => {
-        const response = await fetch(API_ENDPOINT, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": apiKey,
-          },
-          body: JSON.stringify({
-            messages: messages.map(m => ({
-              role: m.role === "user" ? "user" : "assistant",
-              content: m.text
-            })).filter(m => m.role === "user" || m.role === "assistant"),
-            system: systemPrompt,
-            model: model,
-            max_tokens: 2048,
-          }),
-        });
+        // Filter to only user/assistant messages with valid text content
+        const apiMessages = messages
+          .filter(m => (m.role === "user" || m.role === "assistant") && m.text)
+          .map(m => ({
+            role: m.role,
+            content: m.text
+          }));
+
+        console.log("[API] Sending messages:", apiMessages.length, apiMessages);
+
+        let response;
+        try {
+          // Add AbortController for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            console.error("[API] Request timeout after 60s");
+            controller.abort();
+          }, 60000);
+
+          console.log("[API] Initiating fetch...");
+          response = await fetch(API_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-API-Key": apiKey,
+            },
+            body: JSON.stringify({
+              messages: apiMessages,
+              system: systemPrompt,
+              model: model,
+              max_tokens: 2048,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+        } catch (fetchError) {
+          console.error("[API] Fetch failed:", fetchError);
+          throw new Error(`Network error: ${fetchError.message}`);
+        }
+
+        console.log("[API] Response status:", response.status, response.statusText);
 
         if (!response.ok) {
           const errorText = await response.text();
-          throw new Error(`API request failed: ${errorText}`);
+          console.error("[API] Error response:", errorText);
+          throw new Error(`API error (${response.status}): ${errorText}`);
+        }
+
+        if (!response.body) {
+          throw new Error("Response has no body - streaming not supported");
         }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullText = "";
         let buffer = "";
+        let chunkCount = 0;
+
+        console.log("[API] Starting to read stream...");
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            console.log("[API] Stream done, total chunks:", chunkCount, "text length:", fullText.length);
+            break;
+          }
 
-          buffer += decoder.decode(value, { stream: true });
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          chunkCount++;
+
+          if (chunkCount <= 3) {
+            console.log("[API] Chunk", chunkCount, ":", chunk.slice(0, 100));
+          }
+
           const lines = buffer.split("\n");
-          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const data = line.slice(6);
               if (data === "[DONE]") {
+                console.log("[API] Received [DONE]");
                 return fullText;
               }
 
@@ -97,17 +141,19 @@
                   fullText += parsed.text;
                   onChunk(fullText);
                 } else if (parsed.type === "error") {
+                  console.error("[API] Stream error:", parsed.error);
                   throw new Error(parsed.error);
                 }
               } catch (e) {
-                if (e.message !== "Unexpected end of JSON input") {
-                  console.warn("Parse error:", e);
+                if (e.message && !e.message.includes("Unexpected")) {
+                  console.warn("[API] Parse error:", e.message, "data:", data.slice(0, 50));
                 }
               }
             }
           }
         }
 
+        console.log("[API] Stream ended, returning text length:", fullText.length);
         return fullText;
       };
 
@@ -575,9 +621,8 @@
                 onClose={() => setSelectionInfo(null)}
               />
             )}
-            {messages.map((msg, index) => {
-              const contentIndex = contentMessages.indexOf(msg);
-              const isFoundation = foundationMarkers.includes(contentIndex);
+            {contentMessages.map((msg, index) => {
+              const isFoundation = foundationMarkers.includes(index);
               const isMerged = msg.mergedFrom || msg.origin;
               const hasSuggestions = msg.suggestions && (msg.suggestions.branches?.length > 0 || msg.suggestions.quick_answers?.length > 0);
 
@@ -594,15 +639,13 @@
                   {isMerged && (
                     <div className="merged-badge">↩ Merged from: {msg.origin || msg.mergedFrom?.branchTitle}</div>
                   )}
-                  {msg.role !== 'system' && (
-                    <button
-                      className={`foundation-btn ${isFoundation ? 'marked' : ''}`}
-                      onClick={() => onToggleFoundation(nodeId, contentIndex)}
-                      title={isFoundation ? 'Unmark as foundation' : 'Mark as understood (foundation)'}
-                    >
-                      {isFoundation ? '★' : '☆'}
-                    </button>
-                  )}
+                  <button
+                    className={`foundation-btn ${isFoundation ? 'marked' : ''}`}
+                    onClick={() => onToggleFoundation(nodeId, index)}
+                    title={isFoundation ? 'Unmark as foundation' : 'Mark as understood (foundation)'}
+                  >
+                    {isFoundation ? '★' : '☆'}
+                  </button>
                   <div className="message-content">
                     {msg.role === 'assistant' ? renderMarkdown(msg.text) : <p>{msg.text}</p>}
                   </div>
@@ -1095,6 +1138,24 @@
       }
 
       // ============================================
+      // UI COMPONENTS - Error Toast
+      // ============================================
+      function ErrorToast({ error, onDismiss }) {
+        if (!error) return null;
+
+        return (
+          <div className="error-toast" onClick={onDismiss}>
+            <div className="error-icon">⚠</div>
+            <div className="error-content">
+              <div className="error-title">Error</div>
+              <div className="error-message">{error}</div>
+            </div>
+            <button className="error-dismiss">✕</button>
+          </div>
+        );
+      }
+
+      // ============================================
       // UI COMPONENTS - Merge Preview Modal
       // ============================================
       function MergePreview({ sourceNode, targetNode, onConfirm, onCancel }) {
@@ -1267,6 +1328,14 @@
           }
         }, [pendingSend, nodes]);
 
+        // Auto-dismiss error after 8 seconds
+        useEffect(() => {
+          if (error) {
+            const timer = setTimeout(() => setError(null), 8000);
+            return () => clearTimeout(timer);
+          }
+        }, [error]);
+
         // Build enriched tree (supports multiple top-level threads)
         const trees = useMemo(() => {
           const childrenMap = {};
@@ -1390,32 +1459,32 @@
         };
 
         const handleSend = async (id, text) => {
-          // Add user message immediately
-          addMessages(id, [{ role: "user", text }]);
-
           if (!apiKey) {
-            addMessages(id, [{
-              role: "assistant",
-              text: "Please add your Anthropic API key in Settings (⚙) to get AI responses."
-            }]);
+            addMessages(id, [
+              { role: "user", text },
+              { role: "assistant", text: "Please add your Anthropic API key in Settings (⚙) to get AI responses." }
+            ]);
             setShowSettings(true);
             return;
           }
 
+          // IMPORTANT: Capture current node state BEFORE any state updates
+          // React state updates are async, so we need to read messages first
+          const node = nodes[id];
+          const conversationHistory = [...node.messages, { role: "user", text }];
+          const depth = nodesById[id]?.depth || 0;
+          const expertiseLevel = node.expertiseLevel;
+
+          console.log("[handleSend] Node:", id, "Depth:", depth, "Messages in history:", conversationHistory.length);
+
           setIsLoading(true);
           setError(null);
 
-          // Add empty assistant message for streaming
-          const streamingMsgIndex = nodes[id].messages.length + 1; // +1 for user msg we just added
+          // Now add messages to UI (these won't affect our conversationHistory)
+          addMessages(id, [{ role: "user", text }]);
           addMessages(id, [{ role: "assistant", text: "", isStreaming: true }]);
 
           try {
-            const node = nodes[id];
-            const conversationHistory = [...node.messages, { role: "user", text }];
-
-            // Build system prompt with context about the conversation
-            const depth = nodesById[id]?.depth || 0;
-            const expertiseLevel = node.expertiseLevel;
             const isFirstMessage = node.messages.filter(m => m.role === 'user').length === 0;
             const isTopLevel = node.parentId === null;
 
@@ -1633,11 +1702,9 @@ Topic: "${node.title}"`;
           setShowPanel(true);
 
           // If autoSend, queue up the send for when node is available
+          // Just send the topic - the context is already in the system prompt via immediateContext
           if (autoSend && picked) {
-            const contextualRequest = immediateContext
-              ? `Explain "${picked}" in this context: ${immediateContext}`
-              : `I want to explore: ${picked}`;
-            setPendingSend({ id, text: contextualRequest });
+            setPendingSend({ id, text: picked });
           }
         };
 
@@ -1799,6 +1866,8 @@ Topic: "${node.title}"`;
                 onClose={() => setShowSettings(false)}
               />
             )}
+
+            <ErrorToast error={error} onDismiss={() => setError(null)} />
           </div>
         );
       }
