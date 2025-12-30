@@ -1676,8 +1676,12 @@ textarea:disabled {
 /* ============================================
    MERMAID DIAGRAMS
    ============================================ */
-.mermaid-diagram {
+.mermaid-wrapper {
+  position: relative;
   margin: 16px 0;
+}
+
+.mermaid-diagram {
   padding: 20px;
   background: var(--bg-deep);
   border: 1px solid var(--border-dim);
@@ -1685,6 +1689,7 @@ textarea:disabled {
   overflow-x: auto;
   display: flex;
   justify-content: center;
+  position: relative;
 }
 
 .mermaid-diagram svg {
@@ -1732,61 +1737,71 @@ textarea:disabled {
   display: none;
 }
 
-/* Mermaid expand button */
+/* Mermaid expand button - overlaid on diagram */
 .mermaid-expand-btn {
-  display: block;
-  margin: 8px auto 0;
-  padding: 6px 14px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-medium);
-  border-radius: 4px;
-  color: var(--text-muted);
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 8px 12px;
+  background: rgba(17, 17, 17, 0.9);
+  border: 1px solid var(--border-bright);
+  border-radius: 6px;
+  color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   cursor: pointer;
   transition: all 0.15s ease;
+  z-index: 5;
+  backdrop-filter: blur(4px);
+  opacity: 0.7;
 }
 
 .mermaid-expand-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  opacity: 1;
+  background: var(--accent-exploring);
   border-color: var(--accent-exploring);
+  color: var(--bg-deep);
+  transform: scale(1.05);
 }
 
 /* Lightbox for diagrams */
 .lightbox-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.95);
   z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
   animation: fadeIn 0.2s ease;
+  padding: 20px;
 }
 
 .lightbox-content {
   position: relative;
-  max-width: 95vw;
-  max-height: 95vh;
-  background: var(--bg-main);
+  width: 95vw;
+  height: 95vh;
+  background: var(--bg-deep);
   border: 1px solid var(--border-medium);
-  border-radius: 8px;
-  padding: 24px;
+  border-radius: 12px;
+  padding: 60px 40px 40px;
   overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lightbox-close {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 16px;
+  right: 16px;
   background: var(--bg-surface);
   border: 1px solid var(--border-medium);
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--text-secondary);
-  width: 32px;
-  height: 32px;
-  font-size: 16px;
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1799,21 +1814,24 @@ textarea:disabled {
   background: var(--accent-danger);
   border-color: var(--accent-danger);
   color: white;
+  transform: scale(1.1);
 }
 
 .lightbox-diagram {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-width: 400px;
-  min-height: 300px;
+  width: 100%;
+  height: 100%;
 }
 
 .lightbox-diagram svg {
-  max-width: 90vw;
-  max-height: 85vh;
   width: auto !important;
   height: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+  transform: scale(1.5);
+  transform-origin: center center;
 }
 
 /* ============================================

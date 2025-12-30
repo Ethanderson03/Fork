@@ -19,6 +19,7 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="portal-root"></div>
 
     <script type="text/babel">
       const { useEffect, useState, useMemo, useRef, useCallback } = React;
@@ -363,20 +364,22 @@
 
         return (
           <>
-            <div
-              ref={containerRef}
-              className="mermaid-diagram"
-              dangerouslySetInnerHTML={{ __html: svg }}
-            />
-            <button
-              className="mermaid-expand-btn"
-              onClick={() => setShowLightbox(true)}
-              title="View fullscreen"
-            >
-              ⛶ Expand
-            </button>
+            <div className="mermaid-wrapper">
+              <div
+                ref={containerRef}
+                className="mermaid-diagram"
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+              <button
+                className="mermaid-expand-btn"
+                onClick={() => setShowLightbox(true)}
+                title="View fullscreen"
+              >
+                ⛶ Expand
+              </button>
+            </div>
 
-            {showLightbox && (
+            {showLightbox && ReactDOM.createPortal(
               <div className="lightbox-overlay" onClick={() => setShowLightbox(false)}>
                 <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
                   <button className="lightbox-close" onClick={() => setShowLightbox(false)}>✕</button>
@@ -385,7 +388,8 @@
                     dangerouslySetInnerHTML={{ __html: svg }}
                   />
                 </div>
-              </div>
+              </div>,
+              document.getElementById('portal-root')
             )}
           </>
         );
