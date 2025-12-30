@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Learnly - Branchable Chats</title>
+    <title>Learnly - Visual Learning Tree</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
@@ -19,22 +19,46 @@
     <div id="root"></div>
 
     <script type="text/babel">
-      const { useEffect, useState, useMemo, useRef } = React;
+      const { useEffect, useState, useMemo, useRef, useCallback } = React;
+
+      // ============================================
+      // CONSTANTS & UTILITIES
+      // ============================================
+      const NODE_WIDTH = 200;
+      const NODE_HEIGHT = 70;
+      const HORIZONTAL_GAP = 50;
+      const VERTICAL_GAP = 80;
 
       const initialRootMessages = [
         {
           role: "assistant",
-          text: "Welcome! Ask any question to begin. Highlight text in my replies and fork side conversations that stay connected to this main thread.",
+          text: "Welcome to Learnly. Ask any question to begin exploring. Fork conversations to dig deeper into specific concepts. Mark messages as 'foundations' when you understand them.",
         },
       ];
 
-      const createNode = ({ id, parentId = null, title, messages, status = "open", createdAt = Date.now() }) => ({
+      // ============================================
+      // DATA MODELS
+      // ============================================
+      const createNode = ({
+        id,
+        parentId = null,
+        title,
+        messages,
+        status = "open",
+        createdAt = Date.now(),
+        health = "exploring",
+        foundationMarkers = [],
+        mergeHistory = [],
+      }) => ({
         id,
         parentId,
         title,
         messages,
         status,
         createdAt,
+        health,
+        foundationMarkers,
+        mergeHistory,
       });
 
       const selectionText = () => {
@@ -42,33 +66,198 @@
         return text.trim();
       };
 
-      const summarizeMessages = (messages) => {
-        if (!messages || messages.length === 0) return "No messages to merge.";
-        const trimmed = messages
-          .filter((m) => m.role !== "system")
-          .map((m) => `${m.role}: ${m.text}`)
-          .slice(-6);
-        return trimmed.join(" \n ");
+      const summarizeMessages = (messages, foundationMarkers = []) => {
+        if (!messages || messages.length === 0) return "No content to merge.";
+
+        const contentMessages = messages.filter((m) => m.role !== "system");
+
+        // Prioritize foundation-marked messages
+        const foundations = foundationMarkers
+          .map(idx => contentMessages[idx])
+          .filter(Boolean)
+          .map(m => `★ ${m.text.slice(0, 150)}`);
+
+        // Get key Q&A pairs
+        const exchanges = [];
+        for (let i = 0; i < contentMessages.length - 1; i++) {
+          if (contentMessages[i].role === 'user' && contentMessages[i + 1].role === 'assistant') {
+            exchanges.push({
+              q: contentMessages[i].text.slice(0, 80),
+              a: contentMessages[i + 1].text.slice(0, 150)
+            });
+          }
+        }
+
+        let summary = '';
+        if (foundations.length > 0) {
+          summary += '## Key Foundations:\n' + foundations.join('\n') + '\n\n';
+        }
+        if (exchanges.length > 0) {
+          summary += '## Discussion:\n';
+          exchanges.slice(-3).forEach(ex => {
+            summary += `Q: ${ex.q}\nA: ${ex.a}\n\n`;
+          });
+        }
+
+        return summary || contentMessages.slice(-4).map(m => `${m.role}: ${m.text.slice(0, 100)}`).join('\n');
       };
 
-      function Sidebar({ tree, activeId, onSelect, onNewChat }) {
+      const calculateHealth = (node) => {
+        const contentMessages = node.messages.filter(m => m.role !== 'system');
+        if (contentMessages.length === 0) return 'exploring';
+
+        const ratio = node.foundationMarkers.length / contentMessages.length;
+        if (ratio >= 0.4) return 'grounded';
+        if (ratio >= 0.15) return 'exploring';
+        return 'needs-review';
+      };
+
+      // ============================================
+      // TREE LAYOUT CALCULATION
+      // ============================================
+      const calculateTreeLayout = (tree) => {
+        const positions = {};
+
+        const getSubtreeWidth = (node) => {
+          if (!node.children || node.children.length === 0) {
+            return NODE_WIDTH;
+          }
+          const childrenWidth = node.children.reduce((sum, child, idx) => {
+            return sum + getSubtreeWidth(child) + (idx > 0 ? HORIZONTAL_GAP : 0);
+          }, 0);
+          return Math.max(NODE_WIDTH, childrenWidth);
+        };
+
+        const layoutNode = (node, x, y, depth) => {
+          const subtreeWidth = getSubtreeWidth(node);
+          const nodeX = x + (subtreeWidth - NODE_WIDTH) / 2;
+
+          positions[node.id] = { x: nodeX, y, depth };
+
+          if (node.children && node.children.length > 0) {
+            let childX = x;
+            node.children.forEach((child) => {
+              const childWidth = getSubtreeWidth(child);
+              layoutNode(child, childX, y + NODE_HEIGHT + VERTICAL_GAP, depth + 1);
+              childX += childWidth + HORIZONTAL_GAP;
+            });
+          }
+        };
+
+        layoutNode(tree, 100, 80, 0);
+        return positions;
+      };
+
+      // ============================================
+      // UI COMPONENTS - Depth Meter
+      // ============================================
+      function DepthMeter({ currentDepth, maxDepth }) {
+        const segments = 8;
+        const threshold = 4;
+
+        const getSegmentClass = (index) => {
+          if (index >= currentDepth) return '';
+          if (index < 2) return 'filled-green';
+          if (index < 4) return 'filled-yellow';
+          return 'filled-red';
+        };
+
+        return (
+          <div className="depth-meter">
+            <div className="meter-label">
+              DEPTH [{currentDepth}/{maxDepth}]
+            </div>
+            <div className="meter-bar">
+              {Array.from({ length: segments }, (_, i) => (
+                <div
+                  key={i}
+                  className={`meter-segment ${getSegmentClass(i)}`}
+                />
+              ))}
+            </div>
+            {currentDepth >= threshold && (
+              <div className="depth-warning terminal-glow">
+                ! DEEP EXPLORATION !
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Foundation Map
+      // ============================================
+      function FoundationMap({ trees, onJumpTo }) {
+        const allFoundations = useMemo(() => {
+          const foundations = [];
+
+          const traverse = (node, depth = 0) => {
+            if (!node) return;
+            (node.foundationMarkers || []).forEach((idx) => {
+              const msg = node.messages.filter(m => m.role !== 'system')[idx];
+              if (msg) {
+                foundations.push({
+                  nodeId: node.id,
+                  nodeTitle: node.title,
+                  messageIndex: idx,
+                  text: msg.text.slice(0, 40) + '...',
+                  depth,
+                });
+              }
+            });
+            (node.children || []).forEach((child) => traverse(child, depth + 1));
+          };
+
+          (trees || []).forEach(t => traverse(t));
+          return foundations;
+        }, [trees]);
+
+        if (allFoundations.length === 0) return null;
+
+        return (
+          <div className="foundation-map">
+            <div className="map-header">
+              FOUNDATIONS [{allFoundations.length}]
+            </div>
+            <div className="map-list">
+              {allFoundations.map((f, i) => (
+                <div
+                  key={`${f.nodeId}-${f.messageIndex}`}
+                  className="foundation-entry"
+                  onClick={() => onJumpTo(f.nodeId)}
+                >
+                  <span className="foundation-marker">★</span>
+                  <span className="foundation-text">{f.text}</span>
+                  <span className="foundation-depth">[D{f.depth}]</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Sidebar
+      // ============================================
+      function Sidebar({ trees, activeId, onSelect, onNewChat, currentDepth, maxDepth, onJumpTo }) {
         const renderNode = (node, depth = 0) => (
           <li key={node.id}>
-            <div className={`tree-branch depth-${depth}`}>
-              <div className="branch-line" aria-hidden />
+            <div className="tree-branch">
               <div
-                className={`tree-node ${activeId === node.id ? "active" : ""}`}
+                className={`tree-node ${activeId === node.id ? "active" : ""} health-${node.health || 'exploring'}`}
                 onClick={() => onSelect(node.id)}
               >
                 <div className="title">
+                  <span className="depth-tag">[D{depth}]</span>
                   <span className="text">{node.title}</span>
                 </div>
                 <div className="meta">
-                  {node.children.length} fork{node.children.length === 1 ? "" : "s"} • {node.messages.length} message{node.messages.length === 1 ? "" : "s"}
+                  {node.children?.length || 0} forks • {node.messages.length} msgs
+                  {node.foundationMarkers?.length > 0 && ` • ${node.foundationMarkers.length}★`}
                 </div>
               </div>
             </div>
-            {node.children.length > 0 && (
+            {node.children && node.children.length > 0 && (
               <ul className="tree-children">
                 {node.children.map((child) => renderNode(child, depth + 1))}
               </ul>
@@ -79,31 +268,66 @@
         return (
           <aside className="sidebar">
             <div className="sidebar-header">
-              <h1>Forkable chats</h1>
-              <p className="hint">Highlight a reply to branch it.</p>
+              <h1>Learnly</h1>
+              <p className="hint">Visual learning through branching exploration</p>
               <button className="primary-btn full-width" onClick={onNewChat}>
-                New chat
+                + New Thread
               </button>
             </div>
-            <ul className="tree-list">{renderNode(tree)}</ul>
+            <DepthMeter currentDepth={currentDepth} maxDepth={maxDepth} />
+            <FoundationMap trees={trees} onJumpTo={onJumpTo} />
+            <div className="tree-list-container">
+              <ul className="tree-list">
+                {trees.map(t => renderNode(t, 0))}
+              </ul>
+            </div>
           </aside>
         );
       }
 
-      function MessageList({ messages }) {
+      // ============================================
+      // UI COMPONENTS - Message List
+      // ============================================
+      function MessageList({ messages, foundationMarkers = [], onToggleFoundation, nodeId }) {
+        const contentMessages = messages.filter(m => m.role !== 'system');
+
         if (!messages.length) {
-          return <div className="empty">No messages yet. Ask something to get started.</div>;
+          return <div className="empty">No messages yet. Ask something to begin exploring.</div>;
         }
-        return messages.map((msg, index) => (
-          <div className={`message ${msg.role === "user" ? "user" : "assistant"}`} key={index}>
-            <div className="role">{msg.role}</div>
-            {msg.origin && <div className="meta">Context: {msg.origin}</div>}
-            <p>{msg.text}</p>
-          </div>
-        ));
+
+        return messages.map((msg, index) => {
+          const contentIndex = contentMessages.indexOf(msg);
+          const isFoundation = foundationMarkers.includes(contentIndex);
+          const isMerged = msg.mergedFrom || msg.origin;
+
+          return (
+            <div
+              className={`message ${msg.role} ${isFoundation ? 'is-foundation' : ''} ${isMerged ? 'is-merged' : ''}`}
+              key={index}
+            >
+              <div className="role">{msg.role}</div>
+              {isMerged && (
+                <div className="merged-badge">↩ Merged from: {msg.origin || msg.mergedFrom?.branchTitle}</div>
+              )}
+              {msg.role !== 'system' && (
+                <button
+                  className={`foundation-btn ${isFoundation ? 'marked' : ''}`}
+                  onClick={() => onToggleFoundation(nodeId, contentIndex)}
+                  title={isFoundation ? 'Unmark as foundation' : 'Mark as understood (foundation)'}
+                >
+                  {isFoundation ? '★' : '☆'}
+                </button>
+              )}
+              <p>{msg.text}</p>
+            </div>
+          );
+        });
       }
 
-      function Composer({ onSend, disabled, onFork }) {
+      // ============================================
+      // UI COMPONENTS - Composer
+      // ============================================
+      function Composer({ onSend, disabled, onFork, compact = false }) {
         const [input, setInput] = useState("");
 
         const handleSubmit = (e) => {
@@ -122,7 +346,7 @@
           <div className="composer">
             <form onSubmit={handleSubmit}>
               <textarea
-                placeholder="Ask or note something..."
+                placeholder="Ask or explore something..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 disabled={disabled}
@@ -134,17 +358,209 @@
                 Fork
               </button>
             </form>
-            <div className="footer-hint">Highlight text in a reply to fork it.</div>
+            {!compact && <div className="footer-hint">Highlight text → Fork to explore deeper</div>}
           </div>
         );
       }
 
-      function ChatPanel({ node, onSend, onFork, lineage, onJump }) {
+      // ============================================
+      // UI COMPONENTS - Canvas Controls
+      // ============================================
+      function CanvasControls({ onZoomIn, onZoomOut, onReset, onNewThread }) {
         return (
-          <div className="chat-panel">
-            <div className="chat-header">
+          <div className="canvas-controls">
+            <button onClick={onZoomIn} title="Zoom in">+</button>
+            <button onClick={onZoomOut} title="Zoom out">−</button>
+            <button onClick={onReset} title="Reset view">⌂</button>
+            <button onClick={onNewThread} title="New top-level thread" className="new-thread-btn">+ New</button>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Tree Canvas Node
+      // ============================================
+      function TreeCanvasNode({ node, position, isActive, onClick }) {
+        return (
+          <div
+            className={`tree-canvas-node ${isActive ? 'active' : ''} health-${node.health || 'exploring'}`}
+            style={{ left: position.x, top: position.y }}
+            onClick={() => onClick(node.id)}
+          >
+            <div className={`node-health-dot ${node.health || 'exploring'}`} />
+            <div className="node-header">
+              <span className="node-depth">[D{position.depth}]</span>
+              <span className="node-title">{node.title}</span>
+            </div>
+            <div className="node-meta">
+              {node.messages.length} msgs • {node.children?.length || 0} forks
+              {node.foundationMarkers?.length > 0 && ` • ${node.foundationMarkers.length}★`}
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Tree Canvas
+      // ============================================
+      function TreeCanvas({
+        trees,
+        activeId,
+        onSelect,
+        positions,
+        transform,
+        onTransformChange,
+        onNewThread,
+      }) {
+        const canvasRef = useRef(null);
+        const [isPanning, setIsPanning] = useState(false);
+        const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+
+        const handleMouseDown = (e) => {
+          // Don't pan if clicking on a node
+          if (e.target.closest('.tree-canvas-node')) {
+            return;
+          }
+          e.preventDefault();
+          setIsPanning(true);
+          setPanStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
+        };
+
+        const handleMouseMove = (e) => {
+          if (!isPanning) return;
+          onTransformChange({
+            ...transform,
+            x: e.clientX - panStart.x,
+            y: e.clientY - panStart.y,
+          });
+        };
+
+        const handleMouseUp = () => {
+          setIsPanning(false);
+        };
+
+        const handleWheel = (e) => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? 0.9 : 1.1;
+          const newScale = Math.max(0.3, Math.min(2, transform.scale * delta));
+          onTransformChange({ ...transform, scale: newScale });
+        };
+
+        useEffect(() => {
+          const canvas = canvasRef.current;
+          if (canvas) {
+            canvas.addEventListener('wheel', handleWheel, { passive: false });
+            return () => canvas.removeEventListener('wheel', handleWheel);
+          }
+        }, [transform]);
+
+        // Collect all nodes for rendering
+        const collectNodes = (node, acc = []) => {
+          if (!node) return acc;
+          acc.push(node);
+          (node.children || []).forEach(child => collectNodes(child, acc));
+          return acc;
+        };
+        const allNodes = trees.flatMap(t => collectNodes(t, []));
+
+        // Generate edges
+        const renderEdges = () => {
+          const edges = [];
+          const traverse = (node) => {
+            if (!node) return;
+            const parentPos = positions[node.id];
+            if (!parentPos) return;
+
+            (node.children || []).forEach(child => {
+              const childPos = positions[child.id];
+              if (!childPos) return;
+
+              const startX = parentPos.x + NODE_WIDTH / 2;
+              const startY = parentPos.y + NODE_HEIGHT;
+              const endX = childPos.x + NODE_WIDTH / 2;
+              const endY = childPos.y;
+              const midY = (startY + endY) / 2;
+
+              edges.push(
+                <path
+                  key={`${node.id}-${child.id}`}
+                  className={`tree-edge edge-${child.health || 'exploring'}`}
+                  d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
+                />
+              );
+              traverse(child);
+            });
+          };
+          trees.forEach(t => traverse(t));
+          return edges;
+        };
+
+        return (
+          <div
+            className="tree-canvas-container"
+            ref={canvasRef}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+            <CanvasControls
+              onZoomIn={() => onTransformChange({ ...transform, scale: Math.min(2, transform.scale * 1.2) })}
+              onZoomOut={() => onTransformChange({ ...transform, scale: Math.max(0.3, transform.scale / 1.2) })}
+              onReset={() => onTransformChange({ x: 0, y: 0, scale: 1 })}
+              onNewThread={onNewThread}
+            />
+            <div
+              className="canvas-content"
+              style={{
+                transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+              }}
+            >
+              <svg className="edge-layer" style={{ width: 3000, height: 2000 }}>
+                {renderEdges()}
+              </svg>
+              {allNodes.map(node => {
+                const pos = positions[node.id];
+                if (!pos) return null;
+                return (
+                  <TreeCanvasNode
+                    key={node.id}
+                    node={node}
+                    position={pos}
+                    isActive={activeId === node.id}
+                    onClick={onSelect}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Node Panel (Chat View)
+      // ============================================
+      function NodePanel({
+        node,
+        onClose,
+        onSend,
+        onFork,
+        onToggleFoundation,
+        onCloseWithMerge,
+        lineage,
+        onJump,
+      }) {
+        if (!node) return null;
+
+        return (
+          <div className="node-panel">
+            <div className="panel-header">
               <div>
-                <h2>{node.title}</h2>
+                <h2 className="panel-title">{node.title}</h2>
+                <div className="panel-meta">
+                  Depth {node.depth} • {node.messages.length} messages
+                  {node.foundationMarkers?.length > 0 && ` • ${node.foundationMarkers.length} foundations`}
+                </div>
                 <div className="breadcrumbs">
                   {lineage.map((item, idx) => (
                     <span key={item.id} className="crumb" onClick={() => onJump(item.id)}>
@@ -154,69 +570,111 @@
                   ))}
                 </div>
               </div>
+              <div className="panel-actions">
+                {node.id !== 'root' && node.parentId && (
+                  <button className="ghost-btn" onClick={() => onCloseWithMerge(node.id)} title="Close & merge to parent">
+                    ↩ Merge
+                  </button>
+                )}
+                <button className="ghost-btn" onClick={onClose} title="Close panel">
+                  ✕
+                </button>
+              </div>
             </div>
-            <div className="chat-body">
-              <MessageList messages={node.messages} />
+            <div className="panel-body chat-body">
+              <MessageList
+                messages={node.messages}
+                foundationMarkers={node.foundationMarkers || []}
+                onToggleFoundation={onToggleFoundation}
+                nodeId={node.id}
+              />
             </div>
-            <Composer onSend={onSend} onFork={onFork} />
+            <Composer
+              onSend={(text) => onSend(node.id, text)}
+              onFork={(text) => onFork(node.id, text)}
+              compact
+            />
           </div>
         );
       }
 
-      function ModalChat({
-        node,
-        position,
-        onSend,
-        onFork,
-        onClose,
-        onMinimize,
-        minimized,
-        onStartDrag,
-        onJump,
-      }) {
-        const style = {
-          top: position?.y || 120,
-          left: position?.x || 520,
-        };
+      // ============================================
+      // UI COMPONENTS - Merge Preview Modal
+      // ============================================
+      function MergePreview({ sourceNode, targetNode, onConfirm, onCancel }) {
+        const summary = useMemo(() =>
+          summarizeMessages(sourceNode.messages, sourceNode.foundationMarkers || []),
+          [sourceNode]
+        );
 
         return (
-          <div className="modal-window" style={style}>
-            <div className="modal-header" onMouseDown={(e) => onStartDrag(node.id, e)}>
-              <div>
-                <strong>{node.title}</strong>
-                <div className="meta" style={{ fontSize: 12 }}>Depth {node.depth}</div>
+          <div className="merge-preview-overlay" onClick={onCancel}>
+            <div className="merge-preview-modal" onClick={e => e.stopPropagation()}>
+              <div className="merge-header">
+                <span className="ascii-arrow">{'>>'}</span>
+                Merging "{sourceNode.title}" → "{targetNode.title}"
               </div>
-              <div className="modal-actions">
-                <button className="ghost-btn" onClick={() => onJump(node.parentId || "root")} title="Jump to parent">⤶</button>
-                <button className="ghost-btn" onClick={() => onMinimize(node.id)} title="Toggle minimize">
-                  {minimized ? "▣" : "▢"}
+
+              <div className="merge-content">
+                <div className="section">
+                  <h4>Content to merge:</h4>
+                  <pre className="summary-preview">{summary}</pre>
+                </div>
+
+                {sourceNode.foundationMarkers?.length > 0 && (
+                  <div className="section">
+                    <h4>Foundations ({sourceNode.foundationMarkers.length}):</h4>
+                    {sourceNode.foundationMarkers.map(idx => {
+                      const msg = sourceNode.messages.filter(m => m.role !== 'system')[idx];
+                      return msg ? (
+                        <div key={idx} className="foundation-item">
+                          ★ {msg.text.slice(0, 80)}...
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="merge-actions">
+                <button className="secondary-btn" onClick={onCancel}>
+                  Cancel
                 </button>
-                <button className="ghost-btn" onClick={() => onClose(node.id)} title="Close">✕</button>
+                <button className="primary-btn" onClick={onConfirm}>
+                  Confirm Merge
+                </button>
               </div>
-            </div>
-            <div className={`modal-content ${minimized ? "minimized" : ""}`}>
-              <div className="chat-body">
-                <MessageList messages={node.messages} />
-              </div>
-              <Composer onSend={(text) => onSend(node.id, text)} onFork={(text) => onFork(node.id, text)} />
             </div>
           </div>
         );
       }
 
+      // ============================================
+      // MAIN APP
+      // ============================================
       function App() {
         const [nodes, setNodes] = useState({
-          root: createNode({ id: "root", title: "Main Chat", messages: initialRootMessages, parentId: null }),
+          root: createNode({
+            id: "root",
+            title: "Main Thread",
+            messages: initialRootMessages,
+            parentId: null
+          }),
         });
         const [activeId, setActiveId] = useState("root");
-        const [positions, setPositions] = useState({});
-        const [minimized, setMinimized] = useState({});
-        const dragRef = useRef(null);
+        const [showPanel, setShowPanel] = useState(false);
+        const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+        const [mergePreview, setMergePreview] = useState(null);
 
-        const tree = useMemo(() => {
+        // Build enriched tree (supports multiple top-level threads)
+        const trees = useMemo(() => {
           const childrenMap = {};
+          const topLevelNodes = [];
+
           Object.values(nodes).forEach((node) => {
-            if (node.parentId) {
+            if (node.parentId === null) {
+              topLevelNodes.push(node);
+            } else {
               childrenMap[node.parentId] = childrenMap[node.parentId] || [];
               childrenMap[node.parentId].push(node);
             }
@@ -226,45 +684,91 @@
             const enriched = {
               ...node,
               depth,
-              messages: node.messages,
               children: (childrenMap[node.id] || [])
+                .filter(child => child.status !== 'closed')
                 .sort((a, b) => a.createdAt - b.createdAt)
                 .map((child) => attach(child, depth + 1)),
-              layerLabel: depth === 0 ? "Layer 0" : `Layer ${depth}`,
             };
             return enriched;
           };
-          return attach(nodes.root, 0);
+
+          return topLevelNodes
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .map(node => attach(node, 0));
         }, [nodes]);
 
-        const openModals = useMemo(() =>
-          Object.values(nodes)
-            .filter((n) => n.id !== "root" && n.status !== "closed")
-            .map((n) => n.id),
-        [nodes]);
+        // For backwards compatibility, also expose single tree
+        const tree = trees[0] || null;
 
-        useEffect(() => {
-          const handleMouseMove = (e) => {
-            if (!dragRef.current) return;
-            const { id, offsetX, offsetY } = dragRef.current;
-            setPositions((prev) => ({
-              ...prev,
-              [id]: { x: e.clientX - offsetX, y: e.clientY - offsetY },
-            }));
+        // Calculate positions for canvas (handles multiple trees)
+        const positions = useMemo(() => {
+          const allPositions = {};
+          let xOffset = 50;
+
+          trees.forEach((t) => {
+            if (!t) return;
+            const treePositions = calculateTreeLayout(t);
+
+            // Find the width of this tree
+            let maxX = 0;
+            Object.entries(treePositions).forEach(([id, pos]) => {
+              maxX = Math.max(maxX, pos.x + NODE_WIDTH);
+            });
+
+            // Add positions with offset
+            Object.entries(treePositions).forEach(([id, pos]) => {
+              allPositions[id] = {
+                ...pos,
+                x: pos.x + xOffset - 100, // Adjust for the 100 starting offset in calculateTreeLayout
+              };
+            });
+
+            xOffset += maxX + HORIZONTAL_GAP;
+          });
+
+          return allPositions;
+        }, [trees]);
+
+        // Flatten tree for lookups
+        const flattenTree = (node, depth = 0) => {
+          if (!node) return [];
+          const current = { ...node, depth };
+          const children = node.children || [];
+          return [current, ...children.flatMap((child) => flattenTree(child, depth + 1))];
+        };
+
+        const nodesById = useMemo(() => {
+          const list = trees.flatMap(t => flattenTree(t));
+          return list.reduce((acc, n) => ({ ...acc, [n.id]: n }), {});
+        }, [trees]);
+
+        // Calculate max depth
+        const maxDepth = useMemo(() => {
+          let max = 0;
+          const traverse = (node, depth = 0) => {
+            if (!node) return;
+            max = Math.max(max, depth);
+            (node.children || []).forEach(child => traverse(child, depth + 1));
           };
+          trees.forEach(t => traverse(t));
+          return max;
+        }, [trees]);
 
-          const handleMouseUp = () => {
-            dragRef.current = null;
-          };
+        // Current depth
+        const currentDepth = nodesById[activeId]?.depth || 0;
 
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
-          return () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          };
-        }, []);
+        // Lineage for breadcrumbs
+        const lineage = useMemo(() => {
+          const path = [];
+          let cursor = nodesById[activeId];
+          while (cursor) {
+            path.unshift(cursor);
+            cursor = cursor.parentId ? nodesById[cursor.parentId] : null;
+          }
+          return path;
+        }, [activeId, nodesById]);
 
+        // Message handlers
         const addMessages = (id, newMessages) => {
           setNodes((prev) => ({
             ...prev,
@@ -281,7 +785,7 @@
             .slice(-3)
             .map((m) => `${m.role}: ${m.text}`)
             .join(" | ");
-          return `Pulling from ${parent.title}'s context: ${context || "fresh start"}. Here's a helpful follow-up on "${question}".`;
+          return `Building on ${parent.title}'s context. ${context ? `Considering: "${context.slice(0, 100)}..."` : ''} Here's a thoughtful exploration of "${question}".`;
         };
 
         const handleSend = (id, text) => {
@@ -293,17 +797,18 @@
 
         const makeTitle = (parentTitle, selection) => {
           if (selection) {
-            const trimmed = selection.slice(0, 32);
-            return `${trimmed}${selection.length > 32 ? "..." : ""}`;
+            const trimmed = selection.slice(0, 28);
+            return `${trimmed}${selection.length > 28 ? "..." : ""}`;
           }
-          return `${parentTitle} branch`;
+          return `${parentTitle} fork`;
         };
 
         const handleFork = (fromId, explicitSelection) => {
           const base = nodes[fromId];
           const picked = (explicitSelection && explicitSelection.trim()) || selectionText();
-          const contextSnippet = picked || base.messages.slice(-1).map((m) => m.text).join(" ");
-          const id = `chat-${Date.now()}-${Math.round(Math.random() * 9999)}`;
+          const contextSnippet = picked || base.messages.slice(-1).map((m) => m.text).join(" ").slice(0, 50);
+          const id = `node-${Date.now()}-${Math.round(Math.random() * 9999)}`;
+
           const newNode = createNode({
             id,
             parentId: fromId,
@@ -312,129 +817,158 @@
               {
                 role: "system",
                 origin: base.title,
-                text: `Imported from ${base.title}: ${contextSnippet || "continuing without a selection."}`,
+                text: `Forked from "${base.title}": ${contextSnippet || "exploring new direction"}`,
               },
-              { role: "assistant", text: "What would you like to explore in this branch?" },
+              { role: "assistant", text: "What aspect would you like to explore in this branch?" },
             ],
           });
 
           setNodes((prev) => ({ ...prev, [id]: newNode }));
-          // Keep the original branch focused so repeated forks create siblings from the same parent.
-          setActiveId(fromId);
-          setPositions((prev) => ({
-            ...prev,
-            [id]: { x: 520 + Object.keys(prev).length * 22, y: 160 + Object.keys(prev).length * 18 },
-          }));
+          setActiveId(id);
+          setShowPanel(true);
         };
 
         const handleNewChat = () => {
-          const id = `chat-${Date.now()}-${Math.round(Math.random() * 9999)}`;
-          const siblingCount = Object.values(nodes).filter((n) => n.parentId === "root").length;
+          const id = `node-${Date.now()}-${Math.round(Math.random() * 9999)}`;
+          const topLevelCount = Object.values(nodes).filter((n) => n.parentId === null).length;
+
           const newNode = createNode({
             id,
-            parentId: "root",
-            title: `New chat ${siblingCount + 1}`,
-            messages: [{ role: "assistant", text: "New chat started. Ask anything to kick off this branch." }],
+            parentId: null, // Top-level thread (sibling of root)
+            title: `Thread ${topLevelCount + 1}`,
+            messages: [{ role: "assistant", text: "New exploration thread started. What would you like to learn about?" }],
           });
 
           setNodes((prev) => ({ ...prev, [id]: newNode }));
           setActiveId(id);
-          setPositions((prev) => ({
-            ...prev,
-            [id]: { x: 520 + Object.keys(prev).length * 22, y: 160 + Object.keys(prev).length * 18 },
-          }));
+          setShowPanel(true);
         };
 
-        const handleClose = (id) => {
+        const handleToggleFoundation = (nodeId, messageIndex) => {
+          setNodes(prev => {
+            const node = prev[nodeId];
+            const isMarked = node.foundationMarkers.includes(messageIndex);
+            const newMarkers = isMarked
+              ? node.foundationMarkers.filter(i => i !== messageIndex)
+              : [...node.foundationMarkers, messageIndex];
+
+            const updatedNode = {
+              ...node,
+              foundationMarkers: newMarkers,
+            };
+            updatedNode.health = calculateHealth(updatedNode);
+
+            return { ...prev, [nodeId]: updatedNode };
+          });
+        };
+
+        const handleCloseWithMerge = (id) => {
           const node = nodes[id];
-          const summary = summarizeMessages(node.messages);
+          const targetId = node.parentId || 'root';
+          setMergePreview({ sourceId: id, targetId });
+        };
+
+        const confirmMerge = () => {
+          if (!mergePreview) return;
+
+          const { sourceId, targetId } = mergePreview;
+          const sourceNode = nodes[sourceId];
+          const targetNode = nodes[targetId];
+
+          const summary = summarizeMessages(sourceNode.messages, sourceNode.foundationMarkers);
+
           setNodes((prev) => ({
             ...prev,
-            root: {
-              ...prev.root,
+            [targetId]: {
+              ...targetNode,
               messages: [
-                ...prev.root.messages,
-                { role: "assistant", origin: node.title, text: `Merged notes from ${node.title}: ${summary}` },
+                ...targetNode.messages,
+                {
+                  role: "assistant",
+                  origin: sourceNode.title,
+                  mergedFrom: {
+                    branchId: sourceId,
+                    branchTitle: sourceNode.title,
+                    timestamp: Date.now(),
+                    foundationCount: sourceNode.foundationMarkers.length,
+                  },
+                  text: `Merged insights from "${sourceNode.title}":\n\n${summary}`,
+                },
               ],
+              mergeHistory: [...(targetNode.mergeHistory || []), {
+                branchId: sourceId,
+                branchTitle: sourceNode.title,
+                timestamp: Date.now(),
+              }],
             },
-            [id]: { ...node, status: "closed" },
+            [sourceId]: { ...sourceNode, status: "closed" },
           }));
-          setMinimized((prev) => ({ ...prev, [id]: false }));
-          setActiveId("root");
-        };
 
-        const handleMinimize = (id) => {
-          setMinimized((prev) => ({ ...prev, [id]: !prev[id] }));
-        };
-
-        const handleStartDrag = (id, event) => {
-          const rect = event.currentTarget.parentElement.getBoundingClientRect();
-          dragRef.current = {
-            id,
-            offsetX: event.clientX - rect.left,
-            offsetY: event.clientY - rect.top,
-          };
+          setMergePreview(null);
+          setActiveId(targetId);
         };
 
         const selectNode = (id) => {
           setActiveId(id);
-          if (id !== "root") {
-            setNodes((prev) => ({ ...prev, [id]: { ...prev[id], status: "open" } }));
-          }
+          setShowPanel(true);
         };
 
-        const flattenTree = (node, depth = 0) => {
-          const current = { ...node, depth };
-          const children = node.children || [];
-          return [current, ...children.flatMap((child) => flattenTree(child, depth + 1))];
+        const closePanel = () => {
+          setShowPanel(false);
         };
-
-        const nodesById = useMemo(() => {
-          const list = flattenTree(tree);
-          return list.reduce((acc, n) => ({ ...acc, [n.id]: n }), {});
-        }, [tree]);
-
-        const lineage = useMemo(() => {
-          const path = [];
-          let cursor = nodesById[activeId];
-          while (cursor) {
-            path.unshift(cursor);
-            cursor = cursor.parentId ? nodesById[cursor.parentId] : null;
-          }
-          return path;
-        }, [activeId, nodesById]);
 
         return (
           <div className="app-shell">
-            <Sidebar tree={tree} activeId={activeId} onSelect={selectNode} onNewChat={handleNewChat} />
-            <main className="main">
-              <ChatPanel
-                node={nodesById[activeId] || nodesById.root}
-                onSend={(text) => handleSend(activeId, text)}
-                onFork={() => handleFork(activeId)}
-                lineage={lineage}
-                onJump={selectNode}
-              />
-            </main>
+            <Sidebar
+              trees={trees}
+              activeId={activeId}
+              onSelect={selectNode}
+              onNewChat={handleNewChat}
+              currentDepth={currentDepth}
+              maxDepth={maxDepth}
+              onJumpTo={selectNode}
+            />
 
-            {openModals.map((id) => (
-              <ModalChat
-                key={id}
-                node={nodesById[id]}
-                position={positions[id]}
-                minimized={minimized[id]}
-                onSend={handleSend}
-                onFork={(text) => handleFork(id, text)}
-                onClose={handleClose}
-                onMinimize={handleMinimize}
-                onStartDrag={handleStartDrag}
-                onJump={selectNode}
+            <div className="main-area">
+              <TreeCanvas
+                trees={trees}
+                activeId={activeId}
+                onSelect={selectNode}
+                positions={positions}
+                transform={transform}
+                onTransformChange={setTransform}
+                onNewThread={handleNewChat}
               />
-            ))}
+
+              {showPanel && (
+                <NodePanel
+                  node={nodesById[activeId]}
+                  onClose={closePanel}
+                  onSend={handleSend}
+                  onFork={handleFork}
+                  onToggleFoundation={handleToggleFoundation}
+                  onCloseWithMerge={handleCloseWithMerge}
+                  lineage={lineage}
+                  onJump={selectNode}
+                />
+              )}
+            </div>
+
+            {mergePreview && (
+              <MergePreview
+                sourceNode={nodes[mergePreview.sourceId]}
+                targetNode={nodes[mergePreview.targetId]}
+                onConfirm={confirmMerge}
+                onCancel={() => setMergePreview(null)}
+              />
+            )}
           </div>
         );
       }
 
+      // ============================================
+      // RENDER
+      // ============================================
       const container = document.getElementById("root");
       const root = ReactDOM.createRoot(container);
       root.render(<App />);
