@@ -3,38 +3,364 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Learnly - Branchable Chats</title>
+    <title>Fork - Visual Learning Tree</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
     <div id="root"></div>
+    <div id="portal-root"></div>
 
     <script type="text/babel">
-      const { useEffect, useState, useMemo, useRef } = React;
+      const { useEffect, useState, useMemo, useRef, useCallback } = React;
+
+      // Initialize Mermaid with dark theme - comprehensive settings for all diagram types
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        themeVariables: {
+          // Core colors
+          primaryColor: '#4a9eff',
+          primaryTextColor: '#f0f0f0',
+          primaryBorderColor: '#4a9eff',
+          lineColor: '#888888',
+          secondaryColor: '#2a2a2a',
+          tertiaryColor: '#333333',
+          background: '#111111',
+          mainBkg: '#1e1e1e',
+          nodeBorder: '#4a9eff',
+          clusterBkg: '#222222',
+          clusterBorder: '#444444',
+          titleColor: '#f0f0f0',
+          edgeLabelBackground: '#1a1a1a',
+
+          // Text colors - ensure high contrast
+          textColor: '#f0f0f0',
+          nodeTextColor: '#f0f0f0',
+          labelTextColor: '#f0f0f0',
+
+          // Sequence diagram
+          actorTextColor: '#f0f0f0',
+          actorBkg: '#2a2a2a',
+          actorBorder: '#4a9eff',
+          actorLineColor: '#666666',
+          signalColor: '#f0f0f0',
+          signalTextColor: '#f0f0f0',
+          labelBoxBkgColor: '#2a2a2a',
+          labelBoxBorderColor: '#4a9eff',
+          noteBkgColor: '#333333',
+          noteTextColor: '#f0f0f0',
+          noteBorderColor: '#555555',
+          activationBkgColor: '#3a3a3a',
+          activationBorderColor: '#4a9eff',
+          sequenceNumberColor: '#f0f0f0',
+
+          // Gantt chart
+          sectionBkgColor: '#2a2a2a',
+          sectionBkgColor2: '#333333',
+          gridColor: '#444444',
+          todayLineColor: '#4a9eff',
+          taskTextColor: '#f0f0f0',
+          taskTextOutsideColor: '#f0f0f0',
+          taskTextLightColor: '#f0f0f0',
+          taskTextDarkColor: '#1a1a1a',
+          taskBkgColor: '#4a9eff',
+          activeTaskBkgColor: '#5ab0ff',
+          doneTaskBkgColor: '#2d7a4d',
+          critBkgColor: '#a04040',
+          taskBorderColor: '#555555',
+
+          // State diagram
+          labelColor: '#f0f0f0',
+          altBackground: '#2a2a2a',
+
+          // Journey diagram
+          fillType0: '#2a4a6a',
+          fillType1: '#3a5a7a',
+          fillType2: '#4a6a8a',
+          fillType3: '#5a7a9a',
+          fillType4: '#3a6a5a',
+          fillType5: '#4a7a6a',
+          fillType6: '#5a8a7a',
+          fillType7: '#6a9a8a',
+
+          // Pie chart
+          pie1: '#4a9eff',
+          pie2: '#5ab8a0',
+          pie3: '#e8a060',
+          pie4: '#d070a0',
+          pie5: '#8070d0',
+          pie6: '#60c0c0',
+          pie7: '#c0a060',
+          pieTitleTextColor: '#f0f0f0',
+          pieSectionTextColor: '#f0f0f0',
+          pieLegendTextColor: '#f0f0f0',
+          pieStrokeColor: '#333333',
+
+          // Timeline
+          cScale0: '#4a9eff',
+          cScale1: '#5ab8a0',
+          cScale2: '#e8a060',
+          cScale3: '#d070a0',
+          cScale4: '#8070d0',
+          cScale5: '#60c0c0',
+          cScaleLabel0: '#f0f0f0',
+          cScaleLabel1: '#f0f0f0',
+          cScaleLabel2: '#1a1a1a',
+          cScaleLabel3: '#f0f0f0',
+          cScaleLabel4: '#f0f0f0',
+          cScaleLabel5: '#1a1a1a',
+        },
+        flowchart: {
+          curve: 'basis',
+          padding: 15,
+        },
+        sequence: {
+          mirrorActors: false,
+          bottomMarginAdj: 10,
+        },
+        fontFamily: 'JetBrains Mono, monospace',
+      });
+
+      // ============================================
+      // CONSTANTS & UTILITIES
+      // ============================================
+      const NODE_WIDTH = 260;
+      const NODE_HEIGHT = 70;
+      const HORIZONTAL_GAP = 50;
+      const VERTICAL_GAP = 80;
+      const API_ENDPOINT = "/api/chat/stream";
+      const STORAGE_KEY_API = "fork_api_key";
+      const STORAGE_KEY_MODEL = "fork_model";
+      const STORAGE_KEY_NODES = "fork_nodes";
+      const STORAGE_KEY_ACTIVE = "fork_active_id";
+
+      // Load saved nodes from localStorage
+      const loadSavedNodes = () => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY_NODES);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            // Validate that we have at least one node
+            if (parsed && Object.keys(parsed).length > 0) {
+              console.log("[Storage] Loaded", Object.keys(parsed).length, "nodes from localStorage");
+              return parsed;
+            }
+          }
+        } catch (e) {
+          console.warn("[Storage] Failed to load nodes:", e);
+        }
+        return null;
+      };
+
+      // Debounced save to localStorage
+      let saveTimeout = null;
+      const saveNodesToStorage = (nodes) => {
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+          try {
+            localStorage.setItem(STORAGE_KEY_NODES, JSON.stringify(nodes));
+            console.log("[Storage] Saved", Object.keys(nodes).length, "nodes");
+          } catch (e) {
+            console.warn("[Storage] Failed to save nodes:", e);
+          }
+        }, 500); // Debounce 500ms
+      };
+
+      const MODELS = [
+        { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", description: "Best balance of speed and intelligence" },
+        { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", description: "Fast and capable" },
+        { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", description: "Fastest, great for quick responses" },
+      ];
 
       const initialRootMessages = [
         {
           role: "assistant",
-          text: "Welcome! Ask any question to begin. Highlight text in my replies and fork side conversations that stay connected to this main thread.",
+          text: "Welcome to Fork. Ask any question to begin exploring. Fork conversations to dig deeper into specific concepts. Mark messages as 'foundations' when you understand them.\n\nClick the ⚙ button in the sidebar to add your Anthropic API key.",
         },
       ];
 
-      const createNode = ({ id, parentId = null, title, messages, status = "open", createdAt = Date.now() }) => ({
+      // ============================================
+      // API HELPER - Streaming
+      // ============================================
+      const streamToClaudeAPI = async (messages, apiKey, model, systemPrompt, onChunk) => {
+        // Filter to only user/assistant messages with valid text content
+        const filteredMessages = messages
+          .filter(m => (m.role === "user" || m.role === "assistant") && m.text)
+          .map(m => ({
+            role: m.role,
+            content: m.text
+          }));
+
+        // Merge consecutive messages with the same role (API requires alternating roles)
+        const mergedMessages = filteredMessages.reduce((acc, msg) => {
+          if (acc.length > 0 && acc[acc.length - 1].role === msg.role) {
+            // Merge with previous message of same role
+            acc[acc.length - 1].content += "\n\n" + msg.content;
+          } else {
+            acc.push({ ...msg });
+          }
+          return acc;
+        }, []);
+
+        // Limit context to prevent token overflow (keep ~last 20 messages or ~30k chars)
+        const MAX_CONTEXT_CHARS = 30000;
+        let totalChars = mergedMessages.reduce((sum, m) => sum + m.content.length, 0);
+        let apiMessages = mergedMessages;
+
+        if (totalChars > MAX_CONTEXT_CHARS) {
+          // Keep trimming oldest messages until under limit (always keep at least last 4)
+          apiMessages = [...mergedMessages];
+          while (apiMessages.length > 4 && totalChars > MAX_CONTEXT_CHARS) {
+            const removed = apiMessages.shift();
+            totalChars -= removed.content.length;
+          }
+          console.log("[API] Trimmed context from", mergedMessages.length, "to", apiMessages.length, "messages");
+        }
+
+        // Ensure conversation starts with user message (API requirement)
+        if (apiMessages.length > 0 && apiMessages[0].role === 'assistant') {
+          apiMessages.shift();
+          console.log("[API] Removed leading assistant message");
+        }
+
+        console.log("[API] Sending messages:", apiMessages.length, "total chars:", totalChars);
+
+        let response;
+        try {
+          // Add AbortController for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            console.error("[API] Request timeout after 60s");
+            controller.abort();
+          }, 60000);
+
+          console.log("[API] Initiating fetch...");
+          response = await fetch(API_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-API-Key": apiKey,
+            },
+            body: JSON.stringify({
+              messages: apiMessages,
+              system: systemPrompt,
+              model: model,
+              max_tokens: 2048,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+        } catch (fetchError) {
+          console.error("[API] Fetch failed:", fetchError);
+          throw new Error(`Network error: ${fetchError.message}`);
+        }
+
+        console.log("[API] Response status:", response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("[API] Error response:", errorText);
+          throw new Error(`API error (${response.status}): ${errorText}`);
+        }
+
+        if (!response.body) {
+          throw new Error("Response has no body - streaming not supported");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "";
+        let buffer = "";
+        let chunkCount = 0;
+
+        console.log("[API] Starting to read stream...");
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            console.log("[API] Stream done, total chunks:", chunkCount, "text length:", fullText.length);
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          chunkCount++;
+
+          if (chunkCount <= 3) {
+            console.log("[API] Chunk", chunkCount, ":", chunk.slice(0, 100));
+          }
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              if (data === "[DONE]") {
+                console.log("[API] Received [DONE]");
+                return fullText;
+              }
+
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === "text") {
+                  fullText += parsed.text;
+                  onChunk(fullText);
+                } else if (parsed.type === "error") {
+                  console.error("[API] Stream error:", parsed.error);
+                  throw new Error(parsed.error);
+                }
+              } catch (e) {
+                if (e.message && !e.message.includes("Unexpected")) {
+                  console.warn("[API] Parse error:", e.message, "data:", data.slice(0, 50));
+                }
+              }
+            }
+          }
+        }
+
+        console.log("[API] Stream ended, returning text length:", fullText.length);
+        return fullText;
+      };
+
+      // ============================================
+      // DATA MODELS
+      // ============================================
+      const createNode = ({
+        id,
+        parentId = null,
+        title,
+        messages,
+        status = "open",
+        createdAt = Date.now(),
+        health = "exploring",
+        foundationMarkers = [],
+        mergeHistory = [],
+        expertiseLevel = null, // null = not set, 1-5 scale (novice to expert)
+        prereqAssessment = null, // null = not assessed, { conceptName: level } when assessed
+      }) => ({
         id,
         parentId,
         title,
         messages,
         status,
         createdAt,
+        health,
+        foundationMarkers,
+        mergeHistory,
+        expertiseLevel,
+        prereqAssessment,
       });
 
       const selectionText = () => {
@@ -42,33 +368,780 @@
         return text.trim();
       };
 
-      const summarizeMessages = (messages) => {
-        if (!messages || messages.length === 0) return "No messages to merge.";
-        const trimmed = messages
-          .filter((m) => m.role !== "system")
-          .map((m) => `${m.role}: ${m.text}`)
-          .slice(-6);
-        return trimmed.join(" \n ");
+      const summarizeMessages = (messages, foundationMarkers = []) => {
+        if (!messages || messages.length === 0) return "No content to merge.";
+
+        const contentMessages = messages.filter((m) => m.role !== "system");
+
+        // Prioritize foundation-marked messages
+        const foundations = foundationMarkers
+          .map(idx => contentMessages[idx])
+          .filter(Boolean)
+          .map(m => `★ ${m.text.slice(0, 150)}`);
+
+        // Get key Q&A pairs
+        const exchanges = [];
+        for (let i = 0; i < contentMessages.length - 1; i++) {
+          if (contentMessages[i].role === 'user' && contentMessages[i + 1].role === 'assistant') {
+            exchanges.push({
+              q: contentMessages[i].text.slice(0, 80),
+              a: contentMessages[i + 1].text.slice(0, 150)
+            });
+          }
+        }
+
+        let summary = '';
+        if (foundations.length > 0) {
+          summary += '## Key Foundations:\n' + foundations.join('\n') + '\n\n';
+        }
+        if (exchanges.length > 0) {
+          summary += '## Discussion:\n';
+          exchanges.slice(-3).forEach(ex => {
+            summary += `Q: ${ex.q}\nA: ${ex.a}\n\n`;
+          });
+        }
+
+        return summary || contentMessages.slice(-4).map(m => `${m.role}: ${m.text.slice(0, 100)}`).join('\n');
       };
 
-      function Sidebar({ tree, activeId, onSelect, onNewChat }) {
-        const renderNode = (node, depth = 0) => (
-          <li key={node.id}>
-            <div className={`tree-branch depth-${depth}`}>
-              <div className="branch-line" aria-hidden />
+      const calculateHealth = (node) => {
+        const contentMessages = node.messages.filter(m => m.role !== 'system');
+        if (contentMessages.length === 0) return 'exploring';
+
+        const ratio = node.foundationMarkers.length / contentMessages.length;
+        if (ratio >= 0.4) return 'grounded';
+        if (ratio >= 0.15) return 'exploring';
+        return 'needs-review';
+      };
+
+      // Parse AI response to extract suggestions, prereqs, and clean text
+      const parseAIResponse = (text) => {
+        const suggestionsMatch = text.match(/```suggestions\s*([\s\S]*?)```/);
+        const prereqsMatch = text.match(/```prereqs\s*([\s\S]*?)```/);
+        let suggestions = { branches: [], quick_answers: [], title: null };
+        let prereqs = null;
+        let cleanText = text;
+
+        if (suggestionsMatch) {
+          try {
+            const parsed = JSON.parse(suggestionsMatch[1].trim());
+            suggestions = {
+              title: parsed.title || null,
+              branches: parsed.branches || [],
+              quick_answers: parsed.quick_answers || parsed.questions || [] // support both
+            };
+            cleanText = cleanText.replace(/```suggestions\s*[\s\S]*?```/, '').trim();
+          } catch (e) {
+            console.warn('Failed to parse suggestions:', e);
+          }
+        }
+
+        if (prereqsMatch) {
+          try {
+            prereqs = JSON.parse(prereqsMatch[1].trim());
+            cleanText = cleanText.replace(/```prereqs\s*[\s\S]*?```/, '').trim();
+            console.log('[parseAIResponse] Found prereqs block:', prereqs);
+          } catch (e) {
+            console.warn('Failed to parse prereqs:', e);
+          }
+        } else {
+          console.log('[parseAIResponse] No prereqs block found in response');
+        }
+
+        return { cleanText, suggestions, prereqs };
+      };
+
+      // Mermaid Diagram Component with clickable nodes and lightbox
+      function MermaidDiagram({ chart, id, onNodeClick }) {
+        const containerRef = useRef(null);
+        const [svg, setSvg] = useState('');
+        const [error, setError] = useState(null);
+        const [showLightbox, setShowLightbox] = useState(false);
+
+        useEffect(() => {
+          const renderChart = async () => {
+            if (!chart || !containerRef.current) return;
+
+            try {
+              const uniqueId = `mermaid-${id}-${Date.now()}`;
+              const { svg } = await mermaid.render(uniqueId, chart);
+              setSvg(svg);
+              setError(null);
+            } catch (e) {
+              console.warn('Mermaid render error:', e);
+              setError(e.message);
+            }
+          };
+
+          renderChart();
+        }, [chart, id]);
+
+        // Add click handlers to nodes after SVG is rendered
+        useEffect(() => {
+          if (!svg || !containerRef.current || !onNodeClick) return;
+
+          const container = containerRef.current;
+
+          // Find all clickable nodes in the Mermaid SVG
+          const nodes = container.querySelectorAll('.node, .nodeLabel, .cluster-label, .edgeLabel');
+
+          nodes.forEach((node) => {
+            // Get the text content of the node
+            const textEl = node.querySelector('span, text, foreignObject') || node;
+            const text = textEl.textContent?.trim();
+
+            if (text && text.length > 1) {
+              node.style.cursor = 'pointer';
+              node.classList.add('clickable-node');
+
+              // Add click handler
+              const handleClick = (e) => {
+                e.stopPropagation();
+                onNodeClick(text);
+              };
+
+              node.addEventListener('click', handleClick);
+
+              // Store cleanup function
+              node._cleanupClick = () => node.removeEventListener('click', handleClick);
+            }
+          });
+
+          // Cleanup
+          return () => {
+            nodes.forEach((node) => {
+              if (node._cleanupClick) {
+                node._cleanupClick();
+                delete node._cleanupClick;
+              }
+            });
+          };
+        }, [svg, onNodeClick]);
+
+        if (error) {
+          return (
+            <div className="mermaid-error">
+              <code>{chart}</code>
+            </div>
+          );
+        }
+
+        return (
+          <>
+            <div className="mermaid-wrapper">
               <div
-                className={`tree-node ${activeId === node.id ? "active" : ""}`}
-                onClick={() => onSelect(node.id)}
+                ref={containerRef}
+                className="mermaid-diagram"
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+              <button
+                className="mermaid-expand-btn"
+                onClick={() => setShowLightbox(true)}
+                title="View fullscreen"
               >
-                <div className="title">
-                  <span className="text">{node.title}</span>
+                ⛶ Expand
+              </button>
+            </div>
+
+            {showLightbox && ReactDOM.createPortal(
+              <div className="lightbox-overlay" onClick={() => setShowLightbox(false)}>
+                <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+                  <button className="lightbox-close" onClick={() => setShowLightbox(false)}>✕</button>
+                  <div
+                    className="lightbox-diagram"
+                    dangerouslySetInnerHTML={{ __html: svg }}
+                  />
                 </div>
-                <div className="meta">
-                  {node.children.length} fork{node.children.length === 1 ? "" : "s"} • {node.messages.length} message{node.messages.length === 1 ? "" : "s"}
+              </div>,
+              document.getElementById('portal-root')
+            )}
+          </>
+        );
+      }
+
+      // ============================================
+      // Chart.js Component
+      // ============================================
+      function ChartDiagram({ config, id, onLabelClick }) {
+        const canvasRef = useRef(null);
+        const chartRef = useRef(null);
+        const [error, setError] = useState(null);
+
+        useEffect(() => {
+          if (!config || !canvasRef.current) return;
+
+          try {
+            const parsedConfig = typeof config === 'string' ? JSON.parse(config) : config;
+
+            // Destroy existing chart
+            if (chartRef.current) {
+              chartRef.current.destroy();
+            }
+
+            // Dark theme colors
+            const colors = [
+              'rgba(74, 158, 255, 0.8)',   // blue
+              'rgba(74, 222, 128, 0.8)',   // green
+              'rgba(251, 191, 36, 0.8)',   // yellow
+              'rgba(248, 113, 113, 0.8)',  // red
+              'rgba(167, 139, 250, 0.8)',  // purple
+              'rgba(34, 211, 238, 0.8)',   // cyan
+            ];
+
+            const borderColors = colors.map(c => c.replace('0.8', '1'));
+
+            // Apply colors to datasets
+            const datasets = (parsedConfig.datasets || []).map((ds, i) => ({
+              ...ds,
+              backgroundColor: ds.backgroundColor || colors[i % colors.length],
+              borderColor: ds.borderColor || borderColors[i % borderColors.length],
+              borderWidth: ds.borderWidth || 2,
+            }));
+
+            const chartConfig = {
+              type: parsedConfig.type || 'bar',
+              data: {
+                labels: parsedConfig.labels || [],
+                datasets: datasets,
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                  title: {
+                    display: !!parsedConfig.title,
+                    text: parsedConfig.title || '',
+                    color: '#e8e8e8',
+                    font: { family: 'JetBrains Mono', size: 14 },
+                  },
+                  legend: {
+                    labels: { color: '#a0a0a0', font: { family: 'JetBrains Mono' } },
+                  },
+                },
+                scales: parsedConfig.type !== 'pie' && parsedConfig.type !== 'doughnut' ? {
+                  x: {
+                    ticks: { color: '#a0a0a0', font: { family: 'JetBrains Mono' } },
+                    grid: { color: '#2a2a2a' },
+                  },
+                  y: {
+                    ticks: { color: '#a0a0a0', font: { family: 'JetBrains Mono' } },
+                    grid: { color: '#2a2a2a' },
+                  },
+                } : undefined,
+                onClick: (event, elements) => {
+                  if (elements.length > 0 && onLabelClick) {
+                    const index = elements[0].index;
+                    const label = parsedConfig.labels[index];
+                    if (label) onLabelClick(label);
+                  }
+                },
+              },
+            };
+
+            chartRef.current = new Chart(canvasRef.current, chartConfig);
+            setError(null);
+          } catch (e) {
+            console.warn('Chart render error:', e);
+            setError(e.message);
+          }
+
+          return () => {
+            if (chartRef.current) {
+              chartRef.current.destroy();
+            }
+          };
+        }, [config, id]);
+
+        if (error) {
+          return (
+            <div className="chart-error">
+              <div className="error-label">Chart Error:</div>
+              <code>{error}</code>
+            </div>
+          );
+        }
+
+        return (
+          <div className="chart-container">
+            <canvas ref={canvasRef} />
+            <div className="chart-hint">Click any bar/segment to explore</div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // Comparison Table Component
+      // ============================================
+      function ComparisonTable({ config, onCellClick }) {
+        const [sortCol, setSortCol] = useState(null);
+        const [sortDir, setSortDir] = useState('asc');
+
+        // Parse config safely
+        const { parsedConfig, parseError } = useMemo(() => {
+          try {
+            const parsed = typeof config === 'string' ? JSON.parse(config) : config;
+            return { parsedConfig: parsed, parseError: null };
+          } catch (e) {
+            return { parsedConfig: null, parseError: e.message };
+          }
+        }, [config]);
+
+        const { title = '', headers = [], rows = [], highlights = {} } = parsedConfig || {};
+
+        const sortedRows = useMemo(() => {
+          if (!rows || sortCol === null) return rows || [];
+          return [...rows].sort((a, b) => {
+            const valA = a[sortCol] || '';
+            const valB = b[sortCol] || '';
+            const cmp = valA.localeCompare(valB);
+            return sortDir === 'asc' ? cmp : -cmp;
+          });
+        }, [rows, sortCol, sortDir]);
+
+        if (parseError) {
+          return (
+            <div className="comparison-error">
+              <div className="error-label">Table Error:</div>
+              <code>{parseError}</code>
+            </div>
+          );
+        }
+
+        const handleHeaderClick = (colIdx) => {
+          if (sortCol === colIdx) {
+            setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+          } else {
+            setSortCol(colIdx);
+            setSortDir('asc');
+          }
+        };
+
+        const getCellClass = (rowIdx, colIdx) => {
+          const key = `${rowIdx},${colIdx}`;
+          const highlight = highlights[key];
+          if (highlight === 'pro') return 'cell-pro';
+          if (highlight === 'con') return 'cell-con';
+          if (highlight === 'neutral') return 'cell-neutral';
+          return '';
+        };
+
+        return (
+          <div className="comparison-table-container">
+            {title && <div className="comparison-title">{title}</div>}
+            <table className="comparison-table">
+              <thead>
+                <tr>
+                  {headers.map((header, idx) => (
+                    <th
+                      key={idx}
+                      onClick={() => handleHeaderClick(idx)}
+                      className={sortCol === idx ? `sorted-${sortDir}` : ''}
+                    >
+                      {header}
+                      {sortCol === idx && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRows.map((row, rowIdx) => (
+                  <tr key={rowIdx}>
+                    {row.map((cell, colIdx) => (
+                      <td
+                        key={colIdx}
+                        className={getCellClass(rowIdx, colIdx)}
+                        onClick={() => onCellClick && onCellClick(cell)}
+                        title="Click to explore"
+                      >
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="comparison-hint">Click headers to sort • Click cells to explore</div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // Flashcard Deck Component
+      // ============================================
+      function FlashcardDeck({ config, onTermClick }) {
+        const [currentIndex, setCurrentIndex] = useState(0);
+        const [isFlipped, setIsFlipped] = useState(false);
+        const [knownCount, setKnownCount] = useState(0);
+        const [reviewCount, setReviewCount] = useState(0);
+
+        let parsedConfig;
+        try {
+          parsedConfig = typeof config === 'string' ? JSON.parse(config) : config;
+        } catch (e) {
+          return (
+            <div className="flashcard-error">
+              <div className="error-label">Flashcard Error:</div>
+              <code>{e.message}</code>
+            </div>
+          );
+        }
+
+        const { title, cards = [] } = parsedConfig;
+        const currentCard = cards[currentIndex];
+
+        const handleFlip = () => setIsFlipped(!isFlipped);
+
+        const handleNext = () => {
+          setIsFlipped(false);
+          setCurrentIndex((prev) => (prev + 1) % cards.length);
+        };
+
+        const handlePrev = () => {
+          setIsFlipped(false);
+          setCurrentIndex((prev) => (prev - 1 + cards.length) % cards.length);
+        };
+
+        const handleKnew = () => {
+          setKnownCount((prev) => prev + 1);
+          handleNext();
+        };
+
+        const handleNeedReview = () => {
+          setReviewCount((prev) => prev + 1);
+          handleNext();
+        };
+
+        const handleShuffle = () => {
+          setCurrentIndex(Math.floor(Math.random() * cards.length));
+          setIsFlipped(false);
+        };
+
+        if (cards.length === 0) {
+          return <div className="flashcard-empty">No flashcards available</div>;
+        }
+
+        return (
+          <div className="flashcard-deck">
+            {title && <div className="flashcard-title">{title}</div>}
+
+            <div className="flashcard-progress">
+              Card {currentIndex + 1} of {cards.length}
+              {(knownCount > 0 || reviewCount > 0) && (
+                <span className="flashcard-score">
+                  {' '}• <span className="score-known">{knownCount} knew</span> / <span className="score-review">{reviewCount} review</span>
+                </span>
+              )}
+            </div>
+
+            <div className={`flashcard ${isFlipped ? 'flipped' : ''}`} onClick={handleFlip}>
+              <div className="flashcard-inner">
+                <div className="flashcard-front">
+                  <div className="flashcard-label">Question</div>
+                  <div
+                    className="flashcard-content"
+                    onClick={(e) => {
+                      if (onTermClick && currentCard?.front) {
+                        e.stopPropagation();
+                        onTermClick(currentCard.front);
+                      }
+                    }}
+                  >
+                    {currentCard?.front}
+                  </div>
+                  <div className="flashcard-tap-hint">Tap to reveal</div>
+                </div>
+                <div className="flashcard-back">
+                  <div className="flashcard-label">Answer</div>
+                  <div
+                    className="flashcard-content"
+                    onClick={(e) => {
+                      if (onTermClick && currentCard?.back) {
+                        e.stopPropagation();
+                        onTermClick(currentCard.back);
+                      }
+                    }}
+                  >
+                    {currentCard?.back}
+                  </div>
                 </div>
               </div>
             </div>
-            {node.children.length > 0 && (
+
+            <div className="flashcard-controls">
+              <button className="fc-btn" onClick={handlePrev} title="Previous card">←</button>
+              <button className="fc-btn fc-btn-review" onClick={handleNeedReview} title="Need to review">
+                Need Review
+              </button>
+              <button className="fc-btn fc-btn-knew" onClick={handleKnew} title="I knew it">
+                Knew It ✓
+              </button>
+              <button className="fc-btn" onClick={handleNext} title="Next card">→</button>
+              <button className="fc-btn" onClick={handleShuffle} title="Shuffle">⟳</button>
+            </div>
+          </div>
+        );
+      }
+
+      // Markdown renderer with support for special blocks (mermaid, chart, comparison, flashcards)
+      const renderMarkdown = (text, onInteractiveClick) => {
+        if (!text) return null;
+
+        // Unified regex for all special block types
+        const blockRegex = /```(mermaid|chart|comparison|flashcards)\s*([\s\S]*?)```/g;
+        const parts = [];
+        let lastIndex = 0;
+        let match;
+        const counters = { mermaid: 0, chart: 0, comparison: 0, flashcards: 0 };
+
+        while ((match = blockRegex.exec(text)) !== null) {
+          // Add text before this block
+          if (match.index > lastIndex) {
+            parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+          }
+          // Add the special block
+          const blockType = match[1];
+          parts.push({
+            type: blockType,
+            content: match[2].trim(),
+            id: counters[blockType]++
+          });
+          lastIndex = match.index + match[0].length;
+        }
+
+        // Add remaining text
+        if (lastIndex < text.length) {
+          parts.push({ type: 'text', content: text.slice(lastIndex) });
+        }
+
+        // If no special blocks, use simple text rendering
+        if (parts.length === 0) {
+          parts.push({ type: 'text', content: text });
+        }
+
+        const processInline = (line) => {
+          line = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+          line = line.replace(/__(.+?)__/g, '<strong>$1</strong>');
+          line = line.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+          line = line.replace(/_([^_]+)_/g, '<em>$1</em>');
+          line = line.replace(/`([^`]+)`/g, '<code>$1</code>');
+          return line;
+        };
+
+        const renderTextBlock = (textContent, keyPrefix) => {
+          const lines = textContent.split('\n');
+          const elements = [];
+          let listItems = [];
+          let inList = false;
+
+          lines.forEach((line, idx) => {
+            const trimmed = line.trim();
+
+            if (trimmed.match(/^[-*•]\s+/)) {
+              const content = trimmed.replace(/^[-*•]\s+/, '');
+              listItems.push(content);
+              inList = true;
+            } else {
+              if (inList && listItems.length > 0) {
+                elements.push(
+                  <ul key={`${keyPrefix}-list-${idx}`} className="md-list">
+                    {listItems.map((item, i) => (
+                      <li key={i} dangerouslySetInnerHTML={{ __html: processInline(item) }} />
+                    ))}
+                  </ul>
+                );
+                listItems = [];
+                inList = false;
+              }
+
+              if (trimmed.startsWith('### ')) {
+                elements.push(<h4 key={`${keyPrefix}-${idx}`} className="md-h4">{trimmed.slice(4)}</h4>);
+              } else if (trimmed.startsWith('## ')) {
+                elements.push(<h3 key={`${keyPrefix}-${idx}`} className="md-h3">{trimmed.slice(3)}</h3>);
+              } else if (trimmed.startsWith('# ')) {
+                elements.push(<h2 key={`${keyPrefix}-${idx}`} className="md-h2">{trimmed.slice(2)}</h2>);
+              } else if (trimmed) {
+                elements.push(
+                  <p key={`${keyPrefix}-${idx}`} dangerouslySetInnerHTML={{ __html: processInline(trimmed) }} />
+                );
+              }
+            }
+          });
+
+          if (listItems.length > 0) {
+            elements.push(
+              <ul key={`${keyPrefix}-list-final`} className="md-list">
+                {listItems.map((item, i) => (
+                  <li key={i} dangerouslySetInnerHTML={{ __html: processInline(item) }} />
+                ))}
+              </ul>
+            );
+          }
+
+          return elements;
+        };
+
+        return parts.map((part, idx) => {
+          switch (part.type) {
+            case 'mermaid':
+              return <MermaidDiagram key={`mermaid-${idx}`} chart={part.content} id={part.id} onNodeClick={onInteractiveClick} />;
+            case 'chart':
+              return <ChartDiagram key={`chart-${idx}`} config={part.content} id={part.id} onLabelClick={onInteractiveClick} />;
+            case 'comparison':
+              return <ComparisonTable key={`comparison-${idx}`} config={part.content} onCellClick={onInteractiveClick} />;
+            case 'flashcards':
+              return <FlashcardDeck key={`flashcards-${idx}`} config={part.content} onTermClick={onInteractiveClick} />;
+            default:
+              return <React.Fragment key={`text-${idx}`}>{renderTextBlock(part.content, `t${idx}`)}</React.Fragment>;
+          }
+        });
+      };
+
+      // ============================================
+      // TREE LAYOUT CALCULATION
+      // ============================================
+      const calculateTreeLayout = (tree) => {
+        const positions = {};
+
+        const getSubtreeWidth = (node) => {
+          if (!node.children || node.children.length === 0) {
+            return NODE_WIDTH;
+          }
+          const childrenWidth = node.children.reduce((sum, child, idx) => {
+            return sum + getSubtreeWidth(child) + (idx > 0 ? HORIZONTAL_GAP : 0);
+          }, 0);
+          return Math.max(NODE_WIDTH, childrenWidth);
+        };
+
+        const layoutNode = (node, x, y, depth) => {
+          const subtreeWidth = getSubtreeWidth(node);
+          const nodeX = x + (subtreeWidth - NODE_WIDTH) / 2;
+
+          positions[node.id] = { x: nodeX, y, depth };
+
+          if (node.children && node.children.length > 0) {
+            let childX = x;
+            node.children.forEach((child) => {
+              const childWidth = getSubtreeWidth(child);
+              layoutNode(child, childX, y + NODE_HEIGHT + VERTICAL_GAP, depth + 1);
+              childX += childWidth + HORIZONTAL_GAP;
+            });
+          }
+        };
+
+        layoutNode(tree, 100, 80, 0);
+        return positions;
+      };
+
+      // ============================================
+      // UI COMPONENTS - Depth Meter
+      // ============================================
+      function DepthMeter({ currentDepth, maxDepth }) {
+        const segments = 8;
+        const threshold = 4;
+
+        const getSegmentClass = (index) => {
+          if (index >= currentDepth) return '';
+          if (index < 2) return 'filled-green';
+          if (index < 4) return 'filled-yellow';
+          return 'filled-red';
+        };
+
+        return (
+          <div className="depth-meter">
+            <div className="meter-label">
+              DEPTH [{currentDepth}/{maxDepth}]
+            </div>
+            <div className="meter-bar">
+              {Array.from({ length: segments }, (_, i) => (
+                <div
+                  key={i}
+                  className={`meter-segment ${getSegmentClass(i)}`}
+                />
+              ))}
+            </div>
+            {currentDepth >= threshold && (
+              <div className="depth-warning terminal-glow">
+                ! DEEP EXPLORATION !
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Foundation Map
+      // ============================================
+      function FoundationMap({ trees, onJumpTo }) {
+        const allFoundations = useMemo(() => {
+          const foundations = [];
+
+          const traverse = (node, depth = 0) => {
+            if (!node) return;
+            (node.foundationMarkers || []).forEach((idx) => {
+              const msg = node.messages.filter(m => m.role !== 'system')[idx];
+              if (msg) {
+                foundations.push({
+                  nodeId: node.id,
+                  nodeTitle: node.title,
+                  messageIndex: idx,
+                  text: msg.text.slice(0, 40) + '...',
+                  depth,
+                });
+              }
+            });
+            (node.children || []).forEach((child) => traverse(child, depth + 1));
+          };
+
+          (trees || []).forEach(t => traverse(t));
+          return foundations;
+        }, [trees]);
+
+        if (allFoundations.length === 0) return null;
+
+        return (
+          <div className="foundation-map">
+            <div className="map-header">
+              FOUNDATIONS [{allFoundations.length}]
+            </div>
+            <div className="map-list">
+              {allFoundations.map((f, i) => (
+                <div
+                  key={`${f.nodeId}-${f.messageIndex}`}
+                  className="foundation-entry"
+                  onClick={() => onJumpTo(f.nodeId)}
+                >
+                  <span className="foundation-marker">★</span>
+                  <span className="foundation-text">{f.text}</span>
+                  <span className="foundation-depth">[D{f.depth}]</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Sidebar
+      // ============================================
+      function Sidebar({ trees, activeId, onSelect, onNewChat, currentDepth, maxDepth, onJumpTo, onOpenSettings, hasApiKey, collapsed, onToggleCollapse, onClearAll }) {
+        const renderNode = (node, depth = 0) => (
+          <li key={node.id}>
+            <div className="tree-branch">
+              <div
+                className={`tree-node ${activeId === node.id ? "active" : ""} health-${node.health || 'exploring'}`}
+                onClick={() => onSelect(node.id)}
+              >
+                <div className="title">
+                  <span className="depth-tag">[D{depth}]</span>
+                  <span className="text">{node.title}</span>
+                </div>
+                <div className="meta">
+                  {node.children?.length || 0} forks • {node.messages.length} msgs
+                  {node.foundationMarkers?.length > 0 && ` • ${node.foundationMarkers.length}★`}
+                </div>
+              </div>
+            </div>
+            {node.children && node.children.length > 0 && (
               <ul className="tree-children">
                 {node.children.map((child) => renderNode(child, depth + 1))}
               </ul>
@@ -76,34 +1149,439 @@
           </li>
         );
 
+        if (collapsed) {
+          return (
+            <button
+              className="sidebar-expand-float"
+              onClick={onToggleCollapse}
+              title="Show sidebar"
+            >
+              ☰ Menu
+            </button>
+          );
+        }
+
         return (
           <aside className="sidebar">
             <div className="sidebar-header">
-              <h1>Forkable chats</h1>
-              <p className="hint">Highlight a reply to branch it.</p>
+              <button
+                className="collapse-btn"
+                onClick={onToggleCollapse}
+                title="Collapse sidebar"
+              >
+                «
+              </button>
+              <div className="sidebar-title-row">
+                <h1>Fork</h1>
+                <button
+                  className={`settings-btn ${hasApiKey ? 'has-key' : ''}`}
+                  onClick={onOpenSettings}
+                  title="Settings"
+                >
+                  ⚙
+                </button>
+              </div>
+              <p className="hint">Visual learning through branching exploration</p>
+              {!hasApiKey && (
+                <div className="api-warning" onClick={onOpenSettings}>
+                  ⚠ Add API key to enable AI
+                </div>
+              )}
               <button className="primary-btn full-width" onClick={onNewChat}>
-                New chat
+                + New Thread
               </button>
             </div>
-            <ul className="tree-list">{renderNode(tree)}</ul>
+            <DepthMeter currentDepth={currentDepth} maxDepth={maxDepth} />
+            <FoundationMap trees={trees} onJumpTo={onJumpTo} />
+            <div className="tree-list-container">
+              <ul className="tree-list">
+                {trees.map(t => renderNode(t, 0))}
+              </ul>
+            </div>
+            <div className="sidebar-footer">
+              <button className="ghost-btn clear-all-btn" onClick={onClearAll}>
+                Clear All Data
+              </button>
+            </div>
           </aside>
         );
       }
 
-      function MessageList({ messages }) {
-        if (!messages.length) {
-          return <div className="empty">No messages yet. Ask something to get started.</div>;
-        }
-        return messages.map((msg, index) => (
-          <div className={`message ${msg.role === "user" ? "user" : "assistant"}`} key={index}>
-            <div className="role">{msg.role}</div>
-            {msg.origin && <div className="meta">Context: {msg.origin}</div>}
-            <p>{msg.text}</p>
+      // ============================================
+      // UI COMPONENTS - Selection Popup
+      // ============================================
+      function SelectionPopup({ position, onExplore, onClose }) {
+        if (!position) return null;
+
+        return (
+          <div
+            className="selection-popup"
+            style={{ top: position.y, left: position.x }}
+          >
+            <button onClick={onExplore} className="explore-selection-btn">
+              <span className="explore-icon">↳</span>
+              Explore this
+            </button>
           </div>
-        ));
+        );
       }
 
-      function Composer({ onSend, disabled, onFork }) {
+      // ============================================
+      // UI COMPONENTS - Message List
+      // ============================================
+      function MessageList({ messages, foundationMarkers = [], onToggleFoundation, nodeId, onFork, onQuickReply, prereqAssessment, onSetPrereqAssessment }) {
+        const contentMessages = messages.filter(m => m.role !== 'system');
+        const [selectionInfo, setSelectionInfo] = useState(null);
+        const containerRef = useRef(null);
+
+        // Handle text selection in assistant messages
+        const handleMouseUp = (e, msgText) => {
+          const selection = window.getSelection();
+          const selectedText = selection.toString().trim();
+
+          if (selectedText && selectedText.length > 2 && selectedText.length < 200) {
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            const containerRect = containerRef.current?.getBoundingClientRect() || { top: 0, left: 0 };
+
+            // Get surrounding context (the paragraph/sentence containing the selection)
+            const fullText = msgText;
+            const selectionStart = fullText.indexOf(selectedText);
+            let contextStart = Math.max(0, selectionStart - 150);
+            let contextEnd = Math.min(fullText.length, selectionStart + selectedText.length + 150);
+
+            // Try to find sentence boundaries
+            const beforeText = fullText.slice(contextStart, selectionStart);
+            const afterText = fullText.slice(selectionStart + selectedText.length, contextEnd);
+            const sentenceStartMatch = beforeText.match(/[.!?]\s+[A-Z][^.!?]*$/);
+            const sentenceEndMatch = afterText.match(/^[^.!?]*[.!?]/);
+
+            const contextBefore = sentenceStartMatch ? sentenceStartMatch[0].slice(2) : beforeText.slice(-100);
+            const contextAfter = sentenceEndMatch ? sentenceEndMatch[0] : afterText.slice(0, 100);
+            const surroundingContext = `...${contextBefore}${selectedText}${contextAfter}...`;
+
+            setSelectionInfo({
+              text: selectedText,
+              context: surroundingContext,
+              fullMessageText: msgText,
+              position: {
+                x: rect.left - containerRect.left + rect.width / 2,
+                y: rect.top - containerRect.top - 40
+              }
+            });
+          } else {
+            setSelectionInfo(null);
+          }
+        };
+
+        const handleExploreSelection = () => {
+          if (selectionInfo) {
+            // Pass both the selected text and its surrounding context
+            onFork(selectionInfo.text, true, selectionInfo.context);
+            setSelectionInfo(null);
+            window.getSelection().removeAllRanges();
+          }
+        };
+
+        // Close popup when clicking elsewhere
+        useEffect(() => {
+          const handleClickOutside = () => {
+            setTimeout(() => {
+              const selection = window.getSelection();
+              if (!selection.toString().trim()) {
+                setSelectionInfo(null);
+              }
+            }, 10);
+          };
+          document.addEventListener('mousedown', handleClickOutside);
+          return () => document.removeEventListener('mousedown', handleClickOutside);
+        }, []);
+
+        if (!messages.length) {
+          return <div className="empty">No messages yet. Ask something to begin exploring.</div>;
+        }
+
+        return (
+          <div ref={containerRef} className="message-list-container">
+            {selectionInfo && (
+              <SelectionPopup
+                position={selectionInfo.position}
+                onExplore={handleExploreSelection}
+                onClose={() => setSelectionInfo(null)}
+              />
+            )}
+            {contentMessages.map((msg, index) => {
+              const isFoundation = foundationMarkers.includes(index);
+              const isMerged = msg.mergedFrom || msg.origin;
+              const hasSuggestions = msg.suggestions && (msg.suggestions.branches?.length > 0 || msg.suggestions.quick_answers?.length > 0);
+
+              const isStreaming = msg.isStreaming;
+              const isEmptyStream = isStreaming && (!msg.text || msg.text.length === 0);
+
+              // If this message has prereqs and they haven't been assessed, show ONLY the prereqs
+              const showOnlyPrereqs = msg.prereqs && !prereqAssessment && !msg.isStreaming;
+
+              return (
+                <div
+                  className={`message ${msg.role} ${isFoundation ? 'is-foundation' : ''} ${isMerged ? 'is-merged' : ''} ${isStreaming ? 'streaming' : ''} ${isEmptyStream ? 'empty-stream' : ''}`}
+                  key={index}
+                  onMouseUp={msg.role === 'assistant' ? (e) => handleMouseUp(e, msg.text) : undefined}
+                >
+                  {/* Show prereqs FIRST if they exist and aren't assessed */}
+                  {showOnlyPrereqs && (
+                    <PrereqAssessment
+                      prereqs={msg.prereqs}
+                      onComplete={(results) => onSetPrereqAssessment(nodeId, results)}
+                      onForkPrereq={(concept) => onFork(concept, true)}
+                      onSkip={() => onSetPrereqAssessment(nodeId, { _skipped: true })}
+                    />
+                  )}
+
+                  {/* Hide the rest of the message if showing prereqs only */}
+                  {!showOnlyPrereqs && (
+                    <>
+                  <div className="role">{msg.role}</div>
+                  {isMerged && (
+                    <div className="merged-badge">↩ Merged from: {msg.origin || msg.mergedFrom?.branchTitle}</div>
+                  )}
+                  <button
+                    className={`foundation-btn ${isFoundation ? 'marked' : ''}`}
+                    onClick={() => onToggleFoundation(nodeId, index)}
+                    title={isFoundation ? 'Unmark as foundation' : 'Mark as understood (foundation)'}
+                  >
+                    {isFoundation ? '★' : '☆'}
+                  </button>
+                  <div className="message-content">
+                    {msg.role === 'assistant' ? renderMarkdown(msg.text, (nodeText) => onFork(nodeText, true)) : <p>{msg.text}</p>}
+                  </div>
+
+              {hasSuggestions && (
+                <div className="suggestions-container">
+                  {msg.suggestions.branches?.length > 0 && (
+                    <div className="branch-suggestions">
+                      <div className="suggestions-label">Explore deeper:</div>
+                      <div className="suggestion-chips">
+                        {msg.suggestions.branches.map((branch, i) => (
+                          <button
+                            key={i}
+                            className="suggestion-chip branch-chip"
+                            onClick={() => onFork(branch, true)}
+                            title={`Fork into: ${branch}`}
+                          >
+                            <span className="chip-icon">↳</span>
+                            {branch}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {msg.suggestions.quick_answers?.length > 0 && (
+                    <div className="quick-replies">
+                      <div className="suggestions-label">Quick reply:</div>
+                      <div className="suggestion-chips">
+                        {msg.suggestions.quick_answers.map((answer, i) => (
+                          <button
+                            key={i}
+                            className="suggestion-chip answer-chip"
+                            onClick={() => onQuickReply(answer)}
+                            title={`Reply: ${answer}`}
+                          >
+                            {answer}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Expertise Selector
+      // ============================================
+      function ExpertiseSelector({ onSelect, currentLevel }) {
+        const levels = [
+          { value: 1, label: 'Novice', desc: 'New to this topic' },
+          { value: 2, label: 'Beginner', desc: 'Know the basics' },
+          { value: 3, label: 'Intermediate', desc: 'Some experience' },
+          { value: 4, label: 'Advanced', desc: 'Solid understanding' },
+          { value: 5, label: 'Expert', desc: 'Deep expertise' },
+        ];
+
+        return (
+          <div className="expertise-selector">
+            <div className="expertise-header">
+              <span className="expertise-icon">📊</span>
+              What's your familiarity with this topic?
+            </div>
+            <div className="expertise-levels">
+              {levels.map((level) => (
+                <button
+                  key={level.value}
+                  className={`expertise-btn ${currentLevel === level.value ? 'selected' : ''}`}
+                  onClick={() => onSelect(level.value)}
+                  title={level.desc}
+                >
+                  <span className="level-label">{level.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="expertise-hint">
+              This helps tailor explanations to your level
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Prerequisite Assessment
+      // ============================================
+      function PrereqAssessment({ prereqs, onComplete, onForkPrereq, onSkip }) {
+        const [selections, setSelections] = useState({});
+        const [currentIndex, setCurrentIndex] = useState(0);
+
+        if (!prereqs || !prereqs.concepts) return null;
+
+        const { topic, concepts, tooMany } = prereqs;
+        const currentConcept = concepts[currentIndex];
+        const isLastConcept = currentIndex === concepts.length - 1;
+        const currentSelection = selections[currentConcept?.name];
+
+        const handleSelect = (level) => {
+          const conceptName = currentConcept.name;
+          setSelections(prev => ({ ...prev, [conceptName]: level }));
+
+          // Auto-advance after short delay
+          setTimeout(() => {
+            if (currentIndex < concepts.length - 1) {
+              setCurrentIndex(prev => prev + 1);
+            }
+          }, 300);
+        };
+
+        const handleBack = () => {
+          if (currentIndex > 0) {
+            setCurrentIndex(prev => prev - 1);
+          }
+        };
+
+        const handleContinue = () => {
+          if (currentSelection !== undefined && isLastConcept) {
+            onComplete(selections);
+          } else if (currentSelection !== undefined) {
+            setCurrentIndex(prev => prev + 1);
+          }
+        };
+
+        const handleSkip = () => {
+          // Skip with empty assessment - AI will assume no prereq info
+          onSkip ? onSkip() : onComplete({});
+        };
+
+        return (
+          <div className="prereq-assessment">
+            <div className="prereq-header">
+              <div className="prereq-header-top">
+                <span className="prereq-icon">🎯</span>
+                <span className="prereq-title">
+                  Before diving into <strong>{topic}</strong>
+                </span>
+                <button className="prereq-skip-btn" onClick={handleSkip}>
+                  Skip →
+                </button>
+              </div>
+              <div className="prereq-progress">
+                <div className="prereq-progress-bar">
+                  <div
+                    className="prereq-progress-fill"
+                    style={{ width: `${((currentIndex + (currentSelection !== undefined ? 1 : 0)) / concepts.length) * 100}%` }}
+                  />
+                </div>
+                <span className="prereq-progress-text">{currentIndex + 1} of {concepts.length}</span>
+              </div>
+            </div>
+
+            {tooMany && currentIndex === 0 && (
+              <div className="prereq-warning">
+                <span className="warning-icon">⚠️</span>
+                This topic has many prerequisites. Consider exploring foundational concepts first.
+              </div>
+            )}
+
+            <div className="prereq-concepts">
+              <div className="prereq-card active">
+                <div className="prereq-concept-header">
+                  <span className="concept-name">{currentConcept.name}</span>
+                  {currentConcept.importance === 'critical' && (
+                    <span className="importance-badge critical">Critical</span>
+                  )}
+                  {currentConcept.importance === 'high' && (
+                    <span className="importance-badge high">Important</span>
+                  )}
+                </div>
+                <div className="prereq-statements">
+                  {/* Level 0 - hardcoded "no idea" option */}
+                  <button
+                    className={`prereq-statement level-zero ${currentSelection === 0 ? 'selected' : ''}`}
+                    onClick={() => handleSelect(0)}
+                  >
+                    <span className="statement-level">L0</span>
+                    <span className="statement-text">I have no idea what this is</span>
+                  </button>
+                  {currentConcept.levels.map((lvl) => (
+                    <button
+                      key={lvl.level}
+                      className={`prereq-statement ${currentSelection === lvl.level ? 'selected' : ''}`}
+                      onClick={() => handleSelect(lvl.level)}
+                    >
+                      <span className="statement-level">L{lvl.level}</span>
+                      <span className="statement-text">{lvl.statement}</span>
+                    </button>
+                  ))}
+                </div>
+                {tooMany && (
+                  <button
+                    className="prereq-fork-btn"
+                    onClick={() => onForkPrereq(currentConcept.name)}
+                  >
+                    ↳ Learn {currentConcept.name} first
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="prereq-nav">
+              <button
+                className="prereq-nav-btn back"
+                onClick={handleBack}
+                disabled={currentIndex === 0}
+              >
+                ← Back
+              </button>
+              <button
+                className={`prereq-nav-btn next ${currentSelection !== undefined ? 'ready' : ''}`}
+                onClick={handleContinue}
+                disabled={currentSelection === undefined}
+              >
+                {isLastConcept ? 'Continue →' : 'Next →'}
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Composer
+      // ============================================
+      function Composer({ onSend, disabled, onFork, compact = false, showExpertise, expertiseLevel, onSetExpertise }) {
         const [input, setInput] = useState("");
 
         const handleSubmit = (e) => {
@@ -113,6 +1591,17 @@
           setInput("");
         };
 
+        const handleKeyDown = (e) => {
+          // CMD+Enter (Mac) or Ctrl+Enter (Windows) to send
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (input.trim() && !disabled) {
+              onSend(input.trim());
+              setInput("");
+            }
+          }
+        };
+
         const handleFork = () => {
           const text = selectionText();
           onFork(text);
@@ -120,11 +1609,17 @@
 
         return (
           <div className="composer">
+            {showExpertise && !expertiseLevel && (
+              <div className="composer-expertise">
+                <ExpertiseSelector onSelect={onSetExpertise} currentLevel={expertiseLevel} />
+              </div>
+            )}
             <form onSubmit={handleSubmit}>
               <textarea
-                placeholder="Ask or note something..."
+                placeholder={showExpertise && !expertiseLevel ? "Select your experience level above, then ask your question..." : "Ask or explore something..."}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
                 disabled={disabled}
               ></textarea>
               <button type="submit" className="primary-btn" disabled={disabled}>
@@ -134,17 +1629,314 @@
                 Fork
               </button>
             </form>
-            <div className="footer-hint">Highlight text in a reply to fork it.</div>
+            {!compact && <div className="footer-hint">⌘+Enter to send • Highlight text → Fork to explore deeper</div>}
           </div>
         );
       }
 
-      function ChatPanel({ node, onSend, onFork, lineage, onJump }) {
+      // ============================================
+      // UI COMPONENTS - Canvas Controls
+      // ============================================
+      function CanvasControls({ onZoomIn, onZoomOut, onReset, onNewThread }) {
         return (
-          <div className="chat-panel">
-            <div className="chat-header">
+          <div className="canvas-controls">
+            <button onClick={onZoomIn} title="Zoom in">+</button>
+            <button onClick={onZoomOut} title="Zoom out">−</button>
+            <button onClick={onReset} title="Reset view">⌂</button>
+            <button onClick={onNewThread} title="New top-level thread" className="new-thread-btn">+ New</button>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Tree Canvas Node
+      // ============================================
+      function TreeCanvasNode({ node, position, isActive, onClick }) {
+        return (
+          <div
+            className={`tree-canvas-node ${isActive ? 'active' : ''} health-${node.health || 'exploring'}`}
+            style={{ left: position.x, top: position.y }}
+            onClick={() => onClick(node.id)}
+          >
+            <div className={`node-health-dot ${node.health || 'exploring'}`} />
+            <div className="node-header">
+              <span className="node-depth">[D{position.depth}]</span>
+              <span className="node-title">{node.title}</span>
+            </div>
+            <div className="node-meta">
+              {node.messages.length} msgs • {node.children?.length || 0} forks
+              {node.foundationMarkers?.length > 0 && ` • ${node.foundationMarkers.length}★`}
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Tree Canvas
+      // ============================================
+      function TreeCanvas({
+        trees,
+        activeId,
+        onSelect,
+        positions,
+        transform,
+        onTransformChange,
+        onNewThread,
+      }) {
+        const canvasRef = useRef(null);
+        const [isPanning, setIsPanning] = useState(false);
+        const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+
+        const handleMouseDown = (e) => {
+          // Don't pan if clicking on a node
+          if (e.target.closest('.tree-canvas-node')) {
+            return;
+          }
+          e.preventDefault();
+          setIsPanning(true);
+          setPanStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
+        };
+
+        const handleMouseMove = (e) => {
+          if (!isPanning) return;
+          onTransformChange({
+            ...transform,
+            x: e.clientX - panStart.x,
+            y: e.clientY - panStart.y,
+          });
+        };
+
+        const handleMouseUp = () => {
+          setIsPanning(false);
+        };
+
+        const handleWheel = (e) => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? 0.9 : 1.1;
+          const newScale = Math.max(0.3, Math.min(2, transform.scale * delta));
+          onTransformChange({ ...transform, scale: newScale });
+        };
+
+        useEffect(() => {
+          const canvas = canvasRef.current;
+          if (canvas) {
+            canvas.addEventListener('wheel', handleWheel, { passive: false });
+            return () => canvas.removeEventListener('wheel', handleWheel);
+          }
+        }, [transform]);
+
+        // Collect all nodes for rendering
+        const collectNodes = (node, acc = []) => {
+          if (!node) return acc;
+          acc.push(node);
+          (node.children || []).forEach(child => collectNodes(child, acc));
+          return acc;
+        };
+        const allNodes = trees.flatMap(t => collectNodes(t, []));
+
+        // Generate edges
+        const renderEdges = () => {
+          const edges = [];
+          const traverse = (node) => {
+            if (!node) return;
+            const parentPos = positions[node.id];
+            if (!parentPos) return;
+
+            (node.children || []).forEach(child => {
+              const childPos = positions[child.id];
+              if (!childPos) return;
+
+              const startX = parentPos.x + NODE_WIDTH / 2;
+              const startY = parentPos.y + NODE_HEIGHT;
+              const endX = childPos.x + NODE_WIDTH / 2;
+              const endY = childPos.y;
+              const midY = (startY + endY) / 2;
+
+              edges.push(
+                <path
+                  key={`${node.id}-${child.id}`}
+                  className={`tree-edge edge-${child.health || 'exploring'}`}
+                  d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
+                />
+              );
+              traverse(child);
+            });
+          };
+          trees.forEach(t => traverse(t));
+          return edges;
+        };
+
+        return (
+          <div
+            className="tree-canvas-container"
+            ref={canvasRef}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+            <CanvasControls
+              onZoomIn={() => onTransformChange({ ...transform, scale: Math.min(2, transform.scale * 1.2) })}
+              onZoomOut={() => onTransformChange({ ...transform, scale: Math.max(0.3, transform.scale / 1.2) })}
+              onReset={() => onTransformChange({ x: 0, y: 0, scale: 1 })}
+              onNewThread={onNewThread}
+            />
+            <div
+              className="canvas-content"
+              style={{
+                transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+              }}
+            >
+              <svg className="edge-layer" style={{ width: 3000, height: 2000 }}>
+                {renderEdges()}
+              </svg>
+              {allNodes.map(node => {
+                const pos = positions[node.id];
+                if (!pos) return null;
+                return (
+                  <TreeCanvasNode
+                    key={node.id}
+                    node={node}
+                    position={pos}
+                    isActive={activeId === node.id}
+                    onClick={onSelect}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Node Panel (Chat View)
+      // ============================================
+      // Store scroll positions outside component to persist across re-renders
+      const scrollPositions = {};
+
+      function NodePanel({
+        node,
+        onClose,
+        onSend,
+        onFork,
+        onToggleFoundation,
+        onCloseWithMerge,
+        onDelete,
+        lineage,
+        onJump,
+        isLoading,
+        onSetExpertise,
+        onSetPrereqAssessment,
+      }) {
+        const [width, setWidth] = useState(700);
+        const [isResizing, setIsResizing] = useState(false);
+        const panelRef = useRef(null);
+        const chatBodyRef = useRef(null);
+        const prevNodeIdRef = useRef(null);
+        const prevMessageCountRef = useRef(0);
+        const isUserScrolledUpRef = useRef(false);
+
+        const handleMouseDown = (e) => {
+          e.preventDefault();
+          setIsResizing(true);
+        };
+
+        // Track if user has scrolled up from bottom
+        const handleScroll = () => {
+          if (!chatBodyRef.current) return;
+          const { scrollTop, scrollHeight, clientHeight } = chatBodyRef.current;
+          const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+          isUserScrolledUpRef.current = !isAtBottom;
+
+          // Save scroll position for this node
+          if (node) {
+            scrollPositions[node.id] = scrollTop;
+          }
+        };
+
+        // Save scroll position when switching away from a node
+        useEffect(() => {
+          if (prevNodeIdRef.current && prevNodeIdRef.current !== node?.id && chatBodyRef.current) {
+            scrollPositions[prevNodeIdRef.current] = chatBodyRef.current.scrollTop;
+          }
+          prevNodeIdRef.current = node?.id;
+        }, [node?.id]);
+
+        // Restore scroll position when switching to a node
+        useEffect(() => {
+          if (!node || !chatBodyRef.current) return;
+
+          const savedPosition = scrollPositions[node.id];
+          if (savedPosition !== undefined) {
+            // Restore saved position
+            chatBodyRef.current.scrollTop = savedPosition;
+            isUserScrolledUpRef.current = false;
+          } else {
+            // New node - scroll to bottom
+            chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+          }
+        }, [node?.id]);
+
+        // Auto-scroll only when NEW messages arrive (not during streaming)
+        useEffect(() => {
+          if (!node || !chatBodyRef.current) return;
+
+          const messageCount = node.messages.length;
+          const hasNewMessage = messageCount > prevMessageCountRef.current;
+          prevMessageCountRef.current = messageCount;
+
+          // Check if the last message is streaming
+          const lastMessage = node.messages[node.messages.length - 1];
+          const isStreaming = lastMessage?.isStreaming;
+
+          // Only auto-scroll when a NEW message appears (user sent or assistant starts)
+          // Do NOT auto-scroll during streaming - let user read top to bottom
+          if (hasNewMessage && !isStreaming && !isUserScrolledUpRef.current) {
+            chatBodyRef.current.scrollTo({
+              top: chatBodyRef.current.scrollHeight,
+              behavior: 'smooth'
+            });
+          }
+        }, [node?.messages]);
+
+        useEffect(() => {
+          const handleMouseMove = (e) => {
+            if (!isResizing) return;
+            const newWidth = window.innerWidth - e.clientX;
+            setWidth(Math.max(280, Math.min(newWidth, window.innerWidth * 0.7)));
+          };
+
+          const handleMouseUp = () => {
+            setIsResizing(false);
+          };
+
+          if (isResizing) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = 'ew-resize';
+            document.body.style.userSelect = 'none';
+          }
+
+          return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+          };
+        }, [isResizing]);
+
+        if (!node) return null;
+
+        return (
+          <div className="node-panel" ref={panelRef} style={{ width: `${width}px` }}>
+            <div className="panel-resize-handle" onMouseDown={handleMouseDown} />
+            <div className="panel-header">
               <div>
-                <h2>{node.title}</h2>
+                <h2 className="panel-title">{node.title}</h2>
+                <div className="panel-meta">
+                  Depth {node.depth} • {node.messages.length} messages
+                  {node.foundationMarkers?.length > 0 && ` • ${node.foundationMarkers.length} foundations`}
+                </div>
                 <div className="breadcrumbs">
                   {lineage.map((item, idx) => (
                     <span key={item.id} className="crumb" onClick={() => onJump(item.id)}>
@@ -154,69 +1946,296 @@
                   ))}
                 </div>
               </div>
+              <div className="panel-actions">
+                {node.id !== 'root' && node.parentId && (
+                  <button className="ghost-btn" onClick={() => onCloseWithMerge(node.id)} title="Close & merge to parent">
+                    ↩ Merge
+                  </button>
+                )}
+                <button
+                  className="ghost-btn delete-btn"
+                  onClick={() => {
+                    if (confirm(`Delete "${node.title}" and all its branches?`)) {
+                      onDelete(node.id);
+                    }
+                  }}
+                  title="Delete thread"
+                >
+                  🗑
+                </button>
+                <button className="ghost-btn" onClick={onClose} title="Close panel">
+                  ✕
+                </button>
+              </div>
             </div>
-            <div className="chat-body">
-              <MessageList messages={node.messages} />
+            <div
+              className="panel-body chat-body"
+              ref={chatBodyRef}
+              onScroll={handleScroll}
+            >
+              <MessageList
+                messages={node.messages}
+                foundationMarkers={node.foundationMarkers || []}
+                onToggleFoundation={onToggleFoundation}
+                nodeId={node.id}
+                onFork={(topic, autoSend, immediateContext) => onFork(node.id, topic, autoSend, immediateContext)}
+                onQuickReply={(text) => onSend(node.id, text)}
+                prereqAssessment={node.prereqAssessment}
+                onSetPrereqAssessment={onSetPrereqAssessment}
+              />
             </div>
-            <Composer onSend={onSend} onFork={onFork} />
+            <Composer
+              onSend={(text) => onSend(node.id, text)}
+              onFork={(text) => onFork(node.id, text)}
+              disabled={isLoading}
+              compact
+              showExpertise={node.parentId === null && node.messages.filter(m => m.role === 'user').length === 0}
+              expertiseLevel={node.expertiseLevel}
+              onSetExpertise={(level) => onSetExpertise(node.id, level)}
+            />
           </div>
         );
       }
 
-      function ModalChat({
-        node,
-        position,
-        onSend,
-        onFork,
-        onClose,
-        onMinimize,
-        minimized,
-        onStartDrag,
-        onJump,
-      }) {
-        const style = {
-          top: position?.y || 120,
-          left: position?.x || 520,
+      // ============================================
+      // UI COMPONENTS - Error Toast
+      // ============================================
+      function ErrorToast({ error, onDismiss }) {
+        if (!error) return null;
+
+        return (
+          <div className="error-toast" onClick={onDismiss}>
+            <div className="error-icon">⚠</div>
+            <div className="error-content">
+              <div className="error-title">Error</div>
+              <div className="error-message">{error}</div>
+            </div>
+            <button className="error-dismiss">✕</button>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Merge Preview Modal
+      // ============================================
+      function MergePreview({ sourceNode, targetNode, onConfirm, onCancel }) {
+        const summary = useMemo(() =>
+          summarizeMessages(sourceNode.messages, sourceNode.foundationMarkers || []),
+          [sourceNode]
+        );
+
+        return (
+          <div className="merge-preview-overlay" onClick={onCancel}>
+            <div className="merge-preview-modal" onClick={e => e.stopPropagation()}>
+              <div className="merge-header">
+                <span className="ascii-arrow">{'>>'}</span>
+                Merging "{sourceNode.title}" → "{targetNode.title}"
+              </div>
+
+              <div className="merge-content">
+                <div className="section">
+                  <h4>Content to merge:</h4>
+                  <pre className="summary-preview">{summary}</pre>
+                </div>
+
+                {sourceNode.foundationMarkers?.length > 0 && (
+                  <div className="section">
+                    <h4>Foundations ({sourceNode.foundationMarkers.length}):</h4>
+                    {sourceNode.foundationMarkers.map(idx => {
+                      const msg = sourceNode.messages.filter(m => m.role !== 'system')[idx];
+                      return msg ? (
+                        <div key={idx} className="foundation-item">
+                          ★ {msg.text.slice(0, 80)}...
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="merge-actions">
+                <button className="secondary-btn" onClick={onCancel}>
+                  Cancel
+                </button>
+                <button className="primary-btn" onClick={onConfirm}>
+                  Confirm Merge
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ============================================
+      // UI COMPONENTS - Settings Modal
+      // ============================================
+      function SettingsModal({ apiKey, setApiKey, model, setModel, onClose }) {
+        const [tempKey, setTempKey] = useState(apiKey);
+        const [tempModel, setTempModel] = useState(model);
+
+        const handleSave = () => {
+          setApiKey(tempKey);
+          setModel(tempModel);
+          localStorage.setItem(STORAGE_KEY_API, tempKey);
+          localStorage.setItem(STORAGE_KEY_MODEL, tempModel);
+          onClose();
+        };
+
+        const handleClear = () => {
+          setTempKey("");
+          setApiKey("");
+          localStorage.removeItem(STORAGE_KEY_API);
         };
 
         return (
-          <div className="modal-window" style={style}>
-            <div className="modal-header" onMouseDown={(e) => onStartDrag(node.id, e)}>
-              <div>
-                <strong>{node.title}</strong>
-                <div className="meta" style={{ fontSize: 12 }}>Depth {node.depth}</div>
+          <div className="merge-preview-overlay" onClick={onClose}>
+            <div className="merge-preview-modal settings-modal" onClick={e => e.stopPropagation()}>
+              <div className="merge-header">
+                <span className="ascii-arrow">⚙</span>
+                Settings
               </div>
-              <div className="modal-actions">
-                <button className="ghost-btn" onClick={() => onJump(node.parentId || "root")} title="Jump to parent">⤶</button>
-                <button className="ghost-btn" onClick={() => onMinimize(node.id)} title="Toggle minimize">
-                  {minimized ? "▣" : "▢"}
+
+              <div className="merge-content">
+                <div className="section">
+                  <h4>Anthropic API Key</h4>
+                  <p className="settings-hint">Get your API key from console.anthropic.com</p>
+                  <input
+                    type="password"
+                    className="settings-input"
+                    placeholder="sk-ant-..."
+                    value={tempKey}
+                    onChange={(e) => setTempKey(e.target.value)}
+                  />
+                  {tempKey && (
+                    <button className="ghost-btn" onClick={handleClear} style={{marginTop: 8}}>
+                      Clear key
+                    </button>
+                  )}
+                </div>
+
+                <div className="section">
+                  <h4>Model</h4>
+                  <div className="model-options">
+                    {MODELS.map(m => (
+                      <label key={m.id} className={`model-option ${tempModel === m.id ? 'selected' : ''}`}>
+                        <input
+                          type="radio"
+                          name="model"
+                          value={m.id}
+                          checked={tempModel === m.id}
+                          onChange={() => setTempModel(m.id)}
+                        />
+                        <div className="model-info">
+                          <span className="model-name">{m.name}</span>
+                          <span className="model-desc">{m.description}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="merge-actions">
+                <button className="secondary-btn" onClick={onClose}>
+                  Cancel
                 </button>
-                <button className="ghost-btn" onClick={() => onClose(node.id)} title="Close">✕</button>
+                <button className="primary-btn" onClick={handleSave}>
+                  Save Settings
+                </button>
               </div>
-            </div>
-            <div className={`modal-content ${minimized ? "minimized" : ""}`}>
-              <div className="chat-body">
-                <MessageList messages={node.messages} />
-              </div>
-              <Composer onSend={(text) => onSend(node.id, text)} onFork={(text) => onFork(node.id, text)} />
             </div>
           </div>
         );
       }
 
+      // ============================================
+      // MAIN APP
+      // ============================================
       function App() {
-        const [nodes, setNodes] = useState({
-          root: createNode({ id: "root", title: "Main Chat", messages: initialRootMessages, parentId: null }),
+        // Initialize nodes from localStorage or create default
+        const [nodes, setNodes] = useState(() => {
+          const saved = loadSavedNodes();
+          if (saved) return saved;
+          return {
+            root: createNode({
+              id: "root",
+              title: "Main Thread",
+              messages: initialRootMessages,
+              parentId: null
+            }),
+          };
         });
-        const [activeId, setActiveId] = useState("root");
-        const [positions, setPositions] = useState({});
-        const [minimized, setMinimized] = useState({});
-        const dragRef = useRef(null);
 
-        const tree = useMemo(() => {
+        // Initialize activeId from localStorage
+        const [activeId, setActiveId] = useState(() => {
+          const saved = localStorage.getItem(STORAGE_KEY_ACTIVE);
+          return saved || "root";
+        });
+        const [showPanel, setShowPanel] = useState(false);
+        const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+        const [mergePreview, setMergePreview] = useState(null);
+        const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+        // API and settings state
+        const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_API) || "");
+        const [model, setModel] = useState(() => localStorage.getItem(STORAGE_KEY_MODEL) || MODELS[0].id);
+        const [showSettings, setShowSettings] = useState(false);
+        const [isLoading, setIsLoading] = useState(false);
+        const [error, setError] = useState(null);
+
+        // Pending auto-send queue for forked nodes (supports multiple concurrent forks)
+        const [pendingSendQueue, setPendingSendQueue] = useState([]);
+        const handleSendRef = useRef(null);
+        const processingSendRef = useRef(false);
+
+        // Effect to handle pending auto-sends when nodes become available
+        useEffect(() => {
+          if (pendingSendQueue.length === 0 || processingSendRef.current) return;
+
+          // Find first pending send where node exists
+          const readyIndex = pendingSendQueue.findIndex(item => nodes[item.id]);
+          if (readyIndex === -1) return;
+
+          const item = pendingSendQueue[readyIndex];
+          processingSendRef.current = true;
+
+          // Remove from queue
+          setPendingSendQueue(prev => prev.filter((_, i) => i !== readyIndex));
+
+          // Small delay to ensure state is fully settled
+          setTimeout(() => {
+            handleSendRef.current(item.id, item.text);
+            processingSendRef.current = false;
+          }, 50);
+        }, [pendingSendQueue, nodes]);
+
+        // Auto-dismiss error after 8 seconds
+        useEffect(() => {
+          if (error) {
+            const timer = setTimeout(() => setError(null), 8000);
+            return () => clearTimeout(timer);
+          }
+        }, [error]);
+
+        // Save nodes to localStorage when they change (debounced)
+        useEffect(() => {
+          saveNodesToStorage(nodes);
+        }, [nodes]);
+
+        // Save activeId to localStorage
+        useEffect(() => {
+          localStorage.setItem(STORAGE_KEY_ACTIVE, activeId);
+        }, [activeId]);
+
+        // Build enriched tree (supports multiple top-level threads)
+        const trees = useMemo(() => {
           const childrenMap = {};
+          const topLevelNodes = [];
+
           Object.values(nodes).forEach((node) => {
-            if (node.parentId) {
+            if (node.parentId === null) {
+              topLevelNodes.push(node);
+            } else {
               childrenMap[node.parentId] = childrenMap[node.parentId] || [];
               childrenMap[node.parentId].push(node);
             }
@@ -226,174 +2245,80 @@
             const enriched = {
               ...node,
               depth,
-              messages: node.messages,
               children: (childrenMap[node.id] || [])
+                .filter(child => child.status !== 'closed')
                 .sort((a, b) => a.createdAt - b.createdAt)
                 .map((child) => attach(child, depth + 1)),
-              layerLabel: depth === 0 ? "Layer 0" : `Layer ${depth}`,
             };
             return enriched;
           };
-          return attach(nodes.root, 0);
+
+          return topLevelNodes
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .map(node => attach(node, 0));
         }, [nodes]);
 
-        const openModals = useMemo(() =>
-          Object.values(nodes)
-            .filter((n) => n.id !== "root" && n.status !== "closed")
-            .map((n) => n.id),
-        [nodes]);
+        // For backwards compatibility, also expose single tree
+        const tree = trees[0] || null;
 
-        useEffect(() => {
-          const handleMouseMove = (e) => {
-            if (!dragRef.current) return;
-            const { id, offsetX, offsetY } = dragRef.current;
-            setPositions((prev) => ({
-              ...prev,
-              [id]: { x: e.clientX - offsetX, y: e.clientY - offsetY },
-            }));
-          };
+        // Calculate positions for canvas (handles multiple trees)
+        const positions = useMemo(() => {
+          const allPositions = {};
+          let xOffset = 50;
 
-          const handleMouseUp = () => {
-            dragRef.current = null;
-          };
+          trees.forEach((t) => {
+            if (!t) return;
+            const treePositions = calculateTreeLayout(t);
 
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
-          return () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          };
-        }, []);
+            // Find the width of this tree
+            let maxX = 0;
+            Object.entries(treePositions).forEach(([id, pos]) => {
+              maxX = Math.max(maxX, pos.x + NODE_WIDTH);
+            });
 
-        const addMessages = (id, newMessages) => {
-          setNodes((prev) => ({
-            ...prev,
-            [id]: {
-              ...prev[id],
-              messages: [...prev[id].messages, ...newMessages],
-            },
-          }));
-        };
+            // Add positions with offset
+            Object.entries(treePositions).forEach(([id, pos]) => {
+              allPositions[id] = {
+                ...pos,
+                x: pos.x + xOffset - 100, // Adjust for the 100 starting offset in calculateTreeLayout
+              };
+            });
 
-        const simulateAssistant = (question, fromId) => {
-          const parent = nodes[fromId];
-          const context = parent.messages
-            .slice(-3)
-            .map((m) => `${m.role}: ${m.text}`)
-            .join(" | ");
-          return `Pulling from ${parent.title}'s context: ${context || "fresh start"}. Here's a helpful follow-up on "${question}".`;
-        };
-
-        const handleSend = (id, text) => {
-          addMessages(id, [
-            { role: "user", text },
-            { role: "assistant", text: simulateAssistant(text, id) },
-          ]);
-        };
-
-        const makeTitle = (parentTitle, selection) => {
-          if (selection) {
-            const trimmed = selection.slice(0, 32);
-            return `${trimmed}${selection.length > 32 ? "..." : ""}`;
-          }
-          return `${parentTitle} branch`;
-        };
-
-        const handleFork = (fromId, explicitSelection) => {
-          const base = nodes[fromId];
-          const picked = (explicitSelection && explicitSelection.trim()) || selectionText();
-          const contextSnippet = picked || base.messages.slice(-1).map((m) => m.text).join(" ");
-          const id = `chat-${Date.now()}-${Math.round(Math.random() * 9999)}`;
-          const newNode = createNode({
-            id,
-            parentId: fromId,
-            title: makeTitle(base.title, contextSnippet),
-            messages: [
-              {
-                role: "system",
-                origin: base.title,
-                text: `Imported from ${base.title}: ${contextSnippet || "continuing without a selection."}`,
-              },
-              { role: "assistant", text: "What would you like to explore in this branch?" },
-            ],
+            xOffset += maxX + HORIZONTAL_GAP;
           });
 
-          setNodes((prev) => ({ ...prev, [id]: newNode }));
-          // Keep the original branch focused so repeated forks create siblings from the same parent.
-          setActiveId(fromId);
-          setPositions((prev) => ({
-            ...prev,
-            [id]: { x: 520 + Object.keys(prev).length * 22, y: 160 + Object.keys(prev).length * 18 },
-          }));
-        };
+          return allPositions;
+        }, [trees]);
 
-        const handleNewChat = () => {
-          const id = `chat-${Date.now()}-${Math.round(Math.random() * 9999)}`;
-          const siblingCount = Object.values(nodes).filter((n) => n.parentId === "root").length;
-          const newNode = createNode({
-            id,
-            parentId: "root",
-            title: `New chat ${siblingCount + 1}`,
-            messages: [{ role: "assistant", text: "New chat started. Ask anything to kick off this branch." }],
-          });
-
-          setNodes((prev) => ({ ...prev, [id]: newNode }));
-          setActiveId(id);
-          setPositions((prev) => ({
-            ...prev,
-            [id]: { x: 520 + Object.keys(prev).length * 22, y: 160 + Object.keys(prev).length * 18 },
-          }));
-        };
-
-        const handleClose = (id) => {
-          const node = nodes[id];
-          const summary = summarizeMessages(node.messages);
-          setNodes((prev) => ({
-            ...prev,
-            root: {
-              ...prev.root,
-              messages: [
-                ...prev.root.messages,
-                { role: "assistant", origin: node.title, text: `Merged notes from ${node.title}: ${summary}` },
-              ],
-            },
-            [id]: { ...node, status: "closed" },
-          }));
-          setMinimized((prev) => ({ ...prev, [id]: false }));
-          setActiveId("root");
-        };
-
-        const handleMinimize = (id) => {
-          setMinimized((prev) => ({ ...prev, [id]: !prev[id] }));
-        };
-
-        const handleStartDrag = (id, event) => {
-          const rect = event.currentTarget.parentElement.getBoundingClientRect();
-          dragRef.current = {
-            id,
-            offsetX: event.clientX - rect.left,
-            offsetY: event.clientY - rect.top,
-          };
-        };
-
-        const selectNode = (id) => {
-          setActiveId(id);
-          if (id !== "root") {
-            setNodes((prev) => ({ ...prev, [id]: { ...prev[id], status: "open" } }));
-          }
-        };
-
+        // Flatten tree for lookups
         const flattenTree = (node, depth = 0) => {
+          if (!node) return [];
           const current = { ...node, depth };
           const children = node.children || [];
           return [current, ...children.flatMap((child) => flattenTree(child, depth + 1))];
         };
 
         const nodesById = useMemo(() => {
-          const list = flattenTree(tree);
+          const list = trees.flatMap(t => flattenTree(t));
           return list.reduce((acc, n) => ({ ...acc, [n.id]: n }), {});
-        }, [tree]);
+        }, [trees]);
 
+        // Calculate max depth
+        const maxDepth = useMemo(() => {
+          let max = 0;
+          const traverse = (node, depth = 0) => {
+            if (!node) return;
+            max = Math.max(max, depth);
+            (node.children || []).forEach(child => traverse(child, depth + 1));
+          };
+          trees.forEach(t => traverse(t));
+          return max;
+        }, [trees]);
+
+        // Current depth
+        const currentDepth = nodesById[activeId]?.depth || 0;
+
+        // Lineage for breadcrumbs
         const lineage = useMemo(() => {
           const path = [];
           let cursor = nodesById[activeId];
@@ -404,37 +2329,756 @@
           return path;
         }, [activeId, nodesById]);
 
+        // Message handlers
+        const addMessages = (id, newMessages) => {
+          setNodes((prev) => {
+            if (!prev[id]) {
+              console.error("[addMessages] Node not found:", id);
+              return prev;
+            }
+            return {
+              ...prev,
+              [id]: {
+                ...prev[id],
+                messages: [...prev[id].messages, ...newMessages],
+              },
+            };
+          });
+        };
+
+        const simulateAssistant = (question, fromId) => {
+          const parent = nodes[fromId];
+          if (!parent) return `Here's a thoughtful exploration of "${question}".`;
+          const context = (parent.messages || [])
+            .slice(-3)
+            .map((m) => `${m.role}: ${m.text}`)
+            .join(" | ");
+          return `Building on ${parent.title}'s context. ${context ? `Considering: "${context.slice(0, 100)}..."` : ''} Here's a thoughtful exploration of "${question}".`;
+        };
+
+        const handleSend = async (id, text) => {
+          // Guard: check node exists
+          const node = nodes[id];
+          if (!node) {
+            console.error("[handleSend] Node not found:", id);
+            setError("Node not found. Please try again.");
+            return;
+          }
+
+          if (!apiKey) {
+            addMessages(id, [
+              { role: "user", text },
+              { role: "assistant", text: "Please add your Anthropic API key in Settings (⚙) to get AI responses." }
+            ]);
+            setShowSettings(true);
+            return;
+          }
+
+          // IMPORTANT: Capture current node state BEFORE any state updates
+          // React state updates are async, so we need to read messages first
+          const conversationHistory = [...node.messages, { role: "user", text }];
+          const depth = nodesById[id]?.depth || 0;
+          const expertiseLevel = node.expertiseLevel;
+
+          console.log("[handleSend] Node:", id, "Depth:", depth, "Messages in history:", conversationHistory.length);
+
+          setIsLoading(true);
+          setError(null);
+
+          // Now add messages to UI (these won't affect our conversationHistory)
+          addMessages(id, [{ role: "user", text }]);
+          addMessages(id, [{ role: "assistant", text: "", isStreaming: true }]);
+
+          try {
+            const isFirstMessage = node.messages.filter(m => m.role === 'user').length === 0;
+            const isTopLevel = node.parentId === null;
+
+            // Get parent context if this is a forked thread
+            const systemMsg = node.messages.find(m => m.role === 'system');
+            const parentContext = systemMsg?.parentContext || '';
+            const immediateContext = systemMsg?.immediateContext || '';
+
+            const expertiseContext = expertiseLevel
+              ? `The user has indicated they are at expertise level ${expertiseLevel}/5 (1=complete novice, 5=expert).`
+              : isTopLevel && isFirstMessage
+                ? `This is the start of a new topic. Gauge their familiarity level before diving deep.`
+                : '';
+
+            const prereqContext = node.prereqAssessment
+              ? (node.prereqAssessment._skipped
+                  ? '\n## User skipped prerequisite assessment - assume intermediate knowledge and explain concepts as needed.'
+                  : `\n## User's Prerequisite Knowledge Assessment:\n${Object.entries(node.prereqAssessment)
+                      .filter(([key]) => key !== '_skipped')
+                      .map(([concept, level]) => `- ${concept}: Level ${level}/3 (0=no idea, 1=surface, 2=working, 3=deep)`)
+                      .join('\n')}\n\nTailor your explanation: For level 0, explain the prerequisite from scratch. Fill gaps for level 1-2 concepts. Skip basics for level 3 concepts.`)
+              : '';
+
+            const depthContext = depth > 0
+              ? `Current exploration depth: ${depth}. The user has branched ${depth} level(s) deep into subtopics.`
+              : '';
+
+            const immediateContextSection = immediateContext
+              ? `\n## IMPORTANT - The user selected this specific text to explore:\n"${immediateContext}"\n\nExplain the highlighted concept IN THIS CONTEXT. Don't give a generic definition - explain what it means in the specific situation described above.`
+              : '';
+
+            const parentContextSection = parentContext
+              ? `\n## Background from parent conversation:\n${parentContext}\n\nBuild on this foundation - the user has already discussed the above.`
+              : '';
+
+            const systemPrompt = `You are a guide in Fork, an exploration-first learning tool. Your job is to help users discover what interests them by offering clear, concise explanations with many paths to explore deeper.
+
+## CRITICAL: Exploration Over Clarification
+This tool works differently than typical AI interactions:
+- Users learn by BRANCHING into subtopics, not by you asking clarifying questions
+- Don't ask "what aspect interests you?" - instead, explain briefly and offer interesting branches
+- The UI lets users click on ANY term to explore it - your job is to make concepts click-worthy
+- Short, curiosity-sparking responses beat thorough explanations
+- If unsure what they want, give a quick overview with MANY branch options - let them choose their path
+
+## Depth-Aware Behavior:
+${depth === 0 ? `- This is a TOP-LEVEL thread - user is likely still figuring out what they want to learn
+- Keep responses SHORT (2-3 paragraphs max)
+- Offer 4+ diverse branch suggestions spanning different aspects
+- Don't ask what they already know - just start explaining accessibly` : ''}
+${depth > 0 && depth <= 2 ? `- User has branched ${depth} level(s) deep - they're narrowing focus
+- Give more detail than top-level, but still prioritize branches over exhaustive explanation
+- 3-4 branch suggestions, more specific to this subtopic` : ''}
+${depth > 2 ? `- User is ${depth} levels deep - they're clearly interested in detail here
+- Can give more thorough explanations
+- 2-3 very specific branch suggestions` : ''}
+
+${isFirstMessage && isTopLevel && !node.prereqAssessment ? `## ⚠️ FIRST MESSAGE - ASSESS PREREQUISITES FIRST
+This is the user's FIRST message in a new exploration. Before explaining the topic, check if prerequisites would help.
+
+**If the topic has significant foundational concepts** (e.g., RDMA, Kubernetes, distributed systems, ML architectures):
+- Output ONLY a \`prereqs\` block - nothing else
+- Do NOT include any explanation or text before/after the prereqs block
+- The UI will show the prereqs as interactive cards for the user to click
+- After they complete the assessment, you'll receive their levels and can give a tailored response
+
+**If the topic is simple or standalone** (e.g., "what is Python", "explain loops"):
+- Skip the prereqs block entirely and respond normally with an explanation
+
+Example of a prereqs-only response for "RDMA":
+\`\`\`prereqs
+{"topic":"RDMA","concepts":[{"name":"Operating System Kernels","importance":"critical","levels":[{"level":1,"statement":"I know the kernel manages hardware"},{"level":2,"statement":"I understand user vs kernel space"},{"level":3,"statement":"I can explain memory mapping and DMA"}]}],"tooMany":false}
+\`\`\`` : ''}
+
+${expertiseContext}
+${prereqContext}
+${immediateContextSection}
+${parentContextSection}
+
+## Visual Explanations with Diagrams:
+When explaining concepts, USE MERMAID DIAGRAMS liberally. Choose the right type:
+
+**For relationships & flows:**
+- **flowchart/graph**: Concept maps, cause-effect, decision trees
+- **sequenceDiagram**: Interactions, step-by-step processes
+- **classDiagram**: Hierarchies, inheritance, type relationships
+
+**For time-based content:**
+- **timeline**: Historical events, milestones, eras (GREAT for history!)
+- **gantt**: Overlapping periods, project schedules, concurrent events
+
+**For states & journeys:**
+- **stateDiagram**: Lifecycles, state machines, status progressions
+- **journey**: User experiences, emotional arcs, process satisfaction
+
+Example timeline for history:
+\`\`\`mermaid
+timeline
+    title Roman History
+    section Republic
+        509 BCE : Republic founded
+        264 BCE : First Punic War
+    section Crisis
+        133 BCE : Gracchi reforms
+        49 BCE : Caesar crosses Rubicon
+    section Empire
+        27 BCE : Augustus becomes Emperor
+\`\`\`
+
+Example gantt for overlapping periods:
+\`\`\`mermaid
+gantt
+    title Roman Periods
+    dateFormat YYYY
+    section Eras
+    Kingdom     :0753, 0244
+    Republic    :0509, 0482
+    Empire      :0027, 0476
+\`\`\`
+
+Keep diagrams focused - split into multiple diagrams if needed. Suggest branching for more detail.
+
+## Data Visualization with Charts:
+When showing numerical data, comparisons, or trends, use chart blocks:
+- **bar**: Compare quantities across categories
+- **line**: Show trends over time
+- **pie/doughnut**: Show proportions of a whole
+
+\`\`\`chart
+{
+  "type": "bar",
+  "title": "Chart Title",
+  "labels": ["Category 1", "Category 2", "Category 3"],
+  "datasets": [{ "label": "Series Name", "data": [10, 20, 15] }]
+}
+\`\`\`
+
+## Comparison Tables:
+When comparing options, features, or concepts side-by-side:
+
+\`\`\`comparison
+{
+  "title": "Option A vs Option B",
+  "headers": ["Aspect", "Option A", "Option B"],
+  "rows": [
+    ["Speed", "Fast", "Slow"],
+    ["Cost", "High", "Low"]
+  ],
+  "highlights": { "0,1": "pro", "1,2": "pro" }
+}
+\`\`\`
+
+Highlights: "row,col": "pro" (green), "con" (red), or "neutral" (yellow)
+
+## Flashcards for Learning:
+When teaching definitions, terms, or Q&A pairs, use flashcard decks:
+
+\`\`\`flashcards
+{
+  "title": "Key Concepts",
+  "cards": [
+    { "front": "What is X?", "back": "X is the definition here" },
+    { "front": "Term 2", "back": "Definition 2" }
+  ]
+}
+\`\`\`
+
+Use 3-6 cards per deck. Great for vocabulary, definitions, or testing understanding.
+
+## Prerequisite Assessment Format:
+For complex topics, output a prereqs block to gauge the user's background. Here's the exact format with a real example:
+
+\`\`\`prereqs
+{
+  "topic": "RDMA",
+  "concepts": [
+    {
+      "name": "Operating System Kernels",
+      "importance": "critical",
+      "levels": [
+        { "level": 1, "statement": "I know the kernel is the core of an operating system" },
+        { "level": 2, "statement": "I understand user space vs kernel space and system calls" },
+        { "level": 3, "statement": "I can explain memory mapping, DMA buffers, and kernel modules" }
+      ]
+    },
+    {
+      "name": "Network Stack Basics",
+      "importance": "high",
+      "levels": [
+        { "level": 1, "statement": "I know data travels through layers (TCP/IP)" },
+        { "level": 2, "statement": "I understand socket programming and network drivers" },
+        { "level": 3, "statement": "I can explain NIC hardware, interrupts, and zero-copy techniques" }
+      ]
+    }
+  ],
+  "tooMany": false
+}
+\`\`\`
+
+**IMPORTANT:** Output the prereqs block FIRST, then follow with a brief intro paragraph. The UI will render interactive cards that cycle through each prereq one at a time.
+
+Guidelines:
+- Only use this for COMPLEX topics with real prerequisites (not for simple questions like "what is Python")
+- Include AS MANY OR AS FEW prerequisites as the topic ACTUALLY requires - don't artificially limit to a fixed number
+  - A deeply technical topic like "RDMA internals" might need 6-8 prereqs
+  - A moderately complex topic like "Docker basics" might need 2-3 prereqs
+  - A conceptual topic like "what is machine learning" might need just 1 prereq or none at all
+- Each level should be a statement the user can agree with to indicate their knowledge
+- Level 0 = no idea (user will select this themselves - you don't need to include it)
+- Level 1 = surface awareness ("I know X exists"), Level 2 = working knowledge ("I understand how X works"), Level 3 = deep expertise ("I can explain X in detail")
+- Set "importance" to "critical" (must know), "high" (very helpful), or "medium" (nice to have)
+- If there are 10+ prerequisites, set "tooMany": true to suggest the user fork to learn fundamentals first
+- The user can skip the assessment entirely if they prefer - that's okay
+- After the user selects their levels, their assessment will be included in subsequent messages
+
+## Response Style:
+- **Concise over comprehensive** - they can always branch for more
+- Make terms and concepts INTERESTING so users want to click and explore them
+- Use **bold** for key terms that would make good exploration branches
+- Bullet points for listing related concepts
+- Include a diagram when it would clarify relationships
+- NO clarifying questions like "what do you want to focus on?" - just provide content and branches
+
+## IMPORTANT - End every response with this JSON block (EXCEPT prereqs-only responses):
+
+\`\`\`suggestions
+{
+  "title": "Short topic title (3-5 words)",
+  "branches": ["Interesting Subtopic 1", "Interesting Subtopic 2", "Interesting Subtopic 3", "Interesting Subtopic 4"],
+  "quick_answers": ["Tell me more", "How does this work?", "Why does this matter?"]
+}
+\`\`\`
+
+**Note:** If you're outputting ONLY a prereqs block (no explanation), do NOT include a suggestions block.
+
+- **title**: Concise title (3-5 words) capturing the topic. Update as focus becomes clearer.
+- **branches**: ${depth === 0 ? '4-5' : depth <= 2 ? '3-4' : '2-3'} interesting subtopics to explore. Make them SPECIFIC and INTRIGUING - not generic. These become clickable fork buttons.
+- **quick_answers**: 2-3 prompts that continue the conversation. Focus on "tell me more" style prompts, NOT clarifying questions back at the user.
+
+Topic: "${node.title}"`;
+
+            // Stream the response and update message progressively
+            const fullResponse = await streamToClaudeAPI(
+              conversationHistory,
+              apiKey,
+              model,
+              systemPrompt,
+              (partialText) => {
+                // Update the streaming message with partial text
+                setNodes(prev => {
+                  const currentNode = prev[id];
+                  if (!currentNode) return prev;
+                  const messages = [...currentNode.messages];
+                  const lastMsg = messages[messages.length - 1];
+                  if (lastMsg && lastMsg.isStreaming) {
+                    messages[messages.length - 1] = {
+                      ...lastMsg,
+                      text: partialText
+                    };
+                  }
+                  return {
+                    ...prev,
+                    [id]: { ...currentNode, messages }
+                  };
+                });
+              }
+            );
+
+            // Parse the final response to extract suggestions and prereqs
+            const { cleanText, suggestions, prereqs } = parseAIResponse(fullResponse);
+
+            // For prereqs-only responses, add placeholder text so it appears in conversation history
+            const finalText = cleanText || (prereqs ? "[Assessing your background knowledge...]" : "");
+
+            // Finalize the message with parsed content, suggestions, and prereqs
+            setNodes(prev => {
+              const currentNode = prev[id];
+              if (!currentNode) {
+                console.error("[handleSend] Node not found during finalization:", id);
+                return prev;
+              }
+              const messages = [...currentNode.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (lastMsg && lastMsg.isStreaming) {
+                messages[messages.length - 1] = {
+                  role: "assistant",
+                  text: finalText,
+                  suggestions: suggestions,
+                  prereqs: prereqs,
+                  isStreaming: false
+                };
+              }
+
+              // Update title if AI suggested one
+              const newTitle = suggestions.title || currentNode.title;
+
+              return {
+                ...prev,
+                [id]: { ...currentNode, messages, title: newTitle }
+              };
+            });
+
+          } catch (err) {
+            console.error("API Error:", err);
+            setError(err.message || "An error occurred. Please try again.");
+            // Update the streaming message with error
+            setNodes(prev => {
+              const currentNode = prev[id];
+              if (!currentNode) {
+                console.error("[handleSend] Node not found during error handling:", id);
+                return prev;
+              }
+              const messages = [...currentNode.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (lastMsg && lastMsg.isStreaming) {
+                messages[messages.length - 1] = {
+                  role: "assistant",
+                  text: `Error: ${err.message || "Unknown error"}\n\nPlease try again or check your API key in Settings.`,
+                  isStreaming: false
+                };
+              }
+              return {
+                ...prev,
+                [id]: { ...currentNode, messages }
+              };
+            });
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        // Keep ref updated for useEffect
+        handleSendRef.current = handleSend;
+
+        const makeTitle = (parentTitle, selection) => {
+          if (selection) {
+            const trimmed = selection.slice(0, 28);
+            return `${trimmed}${selection.length > 28 ? "..." : ""}`;
+          }
+          return `${parentTitle} fork`;
+        };
+
+        // Compress parent thread context for passing to child fork
+        const compressContext = (node) => {
+          if (!node || !node.messages) return '';
+          const msgs = node.messages.filter(m => m.role !== 'system');
+          if (msgs.length === 0) return '';
+
+          // Get key exchanges (last few Q&A pairs)
+          const exchanges = [];
+          for (let i = 0; i < msgs.length - 1; i++) {
+            if (msgs[i].role === 'user' && msgs[i + 1].role === 'assistant') {
+              exchanges.push({
+                q: msgs[i].text.slice(0, 100),
+                a: msgs[i + 1].text.slice(0, 200)
+              });
+            }
+          }
+
+          // Take last 2-3 exchanges
+          const recent = exchanges.slice(-3);
+          if (recent.length === 0) return '';
+
+          return recent.map(ex => `Q: ${ex.q}\nA: ${ex.a}`).join('\n\n');
+        };
+
+        const handleFork = async (fromId, explicitSelection, autoSend = false, immediateContext = null) => {
+          const base = nodes[fromId];
+          if (!base) {
+            console.error("[handleFork] Base node not found:", fromId);
+            setError("Could not create fork. Please try again.");
+            return;
+          }
+          const picked = (explicitSelection && explicitSelection.trim()) || selectionText();
+          const contextSnippet = picked || (base.messages?.slice(-1).map((m) => m.text).join(" ").slice(0, 50) || "new topic");
+          const id = `node-${Date.now()}-${Math.round(Math.random() * 9999)}`;
+
+          // Compress context from parent for the fork
+          const parentContext = compressContext(base);
+
+          // Create the new node
+          const newNode = createNode({
+            id,
+            parentId: fromId,
+            title: makeTitle(base.title, contextSnippet),
+            expertiseLevel: base.expertiseLevel, // Inherit expertise from parent
+            messages: [
+              {
+                role: "system",
+                origin: base.title,
+                text: `Forked from "${base.title}" to explore: ${contextSnippet || "new direction"}`,
+                parentContext: parentContext,
+                immediateContext: immediateContext, // The sentence/paragraph where the term appeared
+              },
+            ],
+          });
+
+          setNodes((prev) => ({ ...prev, [id]: newNode }));
+          setActiveId(id);
+          setShowPanel(true);
+
+          // If autoSend, add to queue for when node is available
+          // Just send the topic - the context is already in the system prompt via immediateContext
+          if (autoSend && picked) {
+            setPendingSendQueue(prev => [...prev, { id, text: picked }]);
+          }
+        };
+
+        const handleNewChat = () => {
+          const id = `node-${Date.now()}-${Math.round(Math.random() * 9999)}`;
+          const topLevelCount = Object.values(nodes).filter((n) => n.parentId === null).length;
+
+          const newNode = createNode({
+            id,
+            parentId: null, // Top-level thread (sibling of root)
+            title: `Thread ${topLevelCount + 1}`,
+            messages: [{ role: "assistant", text: "New exploration thread started. What would you like to learn about?" }],
+          });
+
+          setNodes((prev) => ({ ...prev, [id]: newNode }));
+          setActiveId(id);
+          setShowPanel(true);
+
+          // Calculate approximate position of new thread and snap canvas to it
+          // New threads are placed to the right of existing ones
+          let estimatedX = 50;
+          Object.keys(positions).forEach((nodeId) => {
+            const pos = positions[nodeId];
+            if (pos) {
+              estimatedX = Math.max(estimatedX, pos.x + NODE_WIDTH + HORIZONTAL_GAP);
+            }
+          });
+
+          // Center the view on the new thread
+          setTransform({
+            x: -estimatedX + 100,
+            y: 0,
+            scale: 1,
+          });
+        };
+
+        const handleToggleFoundation = (nodeId, messageIndex) => {
+          setNodes(prev => {
+            const node = prev[nodeId];
+            const isMarked = node.foundationMarkers.includes(messageIndex);
+            const newMarkers = isMarked
+              ? node.foundationMarkers.filter(i => i !== messageIndex)
+              : [...node.foundationMarkers, messageIndex];
+
+            const updatedNode = {
+              ...node,
+              foundationMarkers: newMarkers,
+            };
+            updatedNode.health = calculateHealth(updatedNode);
+
+            return { ...prev, [nodeId]: updatedNode };
+          });
+        };
+
+        const handleSetExpertise = (nodeId, level) => {
+          setNodes(prev => ({
+            ...prev,
+            [nodeId]: {
+              ...prev[nodeId],
+              expertiseLevel: level,
+            }
+          }));
+        };
+
+        // Delete a node and all its children
+        const handleDeleteNode = (nodeId) => {
+          // Don't delete if it's the only top-level node
+          const topLevelNodes = Object.values(nodes).filter(n => n.parentId === null);
+          const nodeToDelete = nodes[nodeId];
+          if (!nodeToDelete) return;
+
+          if (nodeToDelete.parentId === null && topLevelNodes.length <= 1) {
+            setError("Cannot delete the last thread. Create a new one first.");
+            return;
+          }
+
+          // Find all descendants recursively
+          const getDescendants = (id) => {
+            const children = Object.values(nodes).filter(n => n.parentId === id);
+            return children.flatMap(child => [child.id, ...getDescendants(child.id)]);
+          };
+
+          const toDelete = [nodeId, ...getDescendants(nodeId)];
+          console.log("[Delete] Removing nodes:", toDelete);
+
+          setNodes(prev => {
+            const updated = { ...prev };
+            toDelete.forEach(id => delete updated[id]);
+            return updated;
+          });
+
+          // If we deleted the active node, switch to parent or first available
+          if (toDelete.includes(activeId)) {
+            const newActive = nodeToDelete.parentId ||
+              Object.keys(nodes).find(id => !toDelete.includes(id)) ||
+              "root";
+            setActiveId(newActive);
+          }
+
+          setShowPanel(false);
+        };
+
+        // Clear all data and start fresh
+        const handleClearAll = () => {
+          if (!confirm("Are you sure you want to delete ALL threads and start fresh?")) return;
+
+          localStorage.removeItem(STORAGE_KEY_NODES);
+          localStorage.removeItem(STORAGE_KEY_ACTIVE);
+
+          const freshNodes = {
+            root: createNode({
+              id: "root",
+              title: "Main Thread",
+              messages: initialRootMessages,
+              parentId: null
+            }),
+          };
+          setNodes(freshNodes);
+          setActiveId("root");
+          setShowPanel(false);
+        };
+
+        const handleSetPrereqAssessment = (nodeId, assessment) => {
+          // First, update the node with the assessment
+          setNodes(prev => {
+            const node = prev[nodeId];
+            if (!node) {
+              console.error("[handleSetPrereqAssessment] Node not found:", nodeId);
+              return prev;
+            }
+
+            // Update the node
+            const updatedNodes = {
+              ...prev,
+              [nodeId]: {
+                ...prev[nodeId],
+                prereqAssessment: assessment,
+              }
+            };
+
+            // Trigger a follow-up response after state update
+            setTimeout(() => {
+              // Send a continuation prompt - the AI will see the prereq assessment in context
+              if (handleSendRef.current) {
+                handleSendRef.current(nodeId, "Continue with my assessment.");
+              }
+            }, 100);
+
+            return updatedNodes;
+          });
+        };
+
+        const handleCloseWithMerge = (id) => {
+          const node = nodes[id];
+          if (!node) {
+            console.error("[handleCloseWithMerge] Node not found:", id);
+            return;
+          }
+          const targetId = node.parentId || 'root';
+          setMergePreview({ sourceId: id, targetId });
+        };
+
+        const confirmMerge = () => {
+          if (!mergePreview) return;
+
+          const { sourceId, targetId } = mergePreview;
+          const sourceNode = nodes[sourceId];
+          const targetNode = nodes[targetId];
+
+          const summary = summarizeMessages(sourceNode.messages, sourceNode.foundationMarkers);
+
+          setNodes((prev) => ({
+            ...prev,
+            [targetId]: {
+              ...targetNode,
+              messages: [
+                ...targetNode.messages,
+                {
+                  role: "assistant",
+                  origin: sourceNode.title,
+                  mergedFrom: {
+                    branchId: sourceId,
+                    branchTitle: sourceNode.title,
+                    timestamp: Date.now(),
+                    foundationCount: sourceNode.foundationMarkers.length,
+                  },
+                  text: `Merged insights from "${sourceNode.title}":\n\n${summary}`,
+                },
+              ],
+              mergeHistory: [...(targetNode.mergeHistory || []), {
+                branchId: sourceId,
+                branchTitle: sourceNode.title,
+                timestamp: Date.now(),
+              }],
+            },
+            [sourceId]: { ...sourceNode, status: "closed" },
+          }));
+
+          setMergePreview(null);
+          setActiveId(targetId);
+        };
+
+        const selectNode = (id) => {
+          setActiveId(id);
+          setShowPanel(true);
+        };
+
+        const closePanel = () => {
+          setShowPanel(false);
+        };
+
         return (
           <div className="app-shell">
-            <Sidebar tree={tree} activeId={activeId} onSelect={selectNode} onNewChat={handleNewChat} />
-            <main className="main">
-              <ChatPanel
-                node={nodesById[activeId] || nodesById.root}
-                onSend={(text) => handleSend(activeId, text)}
-                onFork={() => handleFork(activeId)}
-                lineage={lineage}
-                onJump={selectNode}
-              />
-            </main>
+            <Sidebar
+              trees={trees}
+              activeId={activeId}
+              onSelect={selectNode}
+              onNewChat={handleNewChat}
+              currentDepth={currentDepth}
+              maxDepth={maxDepth}
+              onJumpTo={selectNode}
+              onOpenSettings={() => setShowSettings(true)}
+              hasApiKey={!!apiKey}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+              onClearAll={handleClearAll}
+            />
 
-            {openModals.map((id) => (
-              <ModalChat
-                key={id}
-                node={nodesById[id]}
-                position={positions[id]}
-                minimized={minimized[id]}
-                onSend={handleSend}
-                onFork={(text) => handleFork(id, text)}
-                onClose={handleClose}
-                onMinimize={handleMinimize}
-                onStartDrag={handleStartDrag}
-                onJump={selectNode}
+            <div className="main-area">
+              <TreeCanvas
+                trees={trees}
+                activeId={activeId}
+                onSelect={selectNode}
+                positions={positions}
+                transform={transform}
+                onTransformChange={setTransform}
+                onNewThread={handleNewChat}
               />
-            ))}
+
+              {showPanel && (
+                <NodePanel
+                  node={nodesById[activeId]}
+                  onClose={closePanel}
+                  onSend={handleSend}
+                  onFork={handleFork}
+                  onToggleFoundation={handleToggleFoundation}
+                  onCloseWithMerge={handleCloseWithMerge}
+                  onDelete={handleDeleteNode}
+                  lineage={lineage}
+                  onJump={selectNode}
+                  isLoading={isLoading}
+                  onSetExpertise={handleSetExpertise}
+                  onSetPrereqAssessment={handleSetPrereqAssessment}
+                />
+              )}
+            </div>
+
+            {mergePreview && (
+              <MergePreview
+                sourceNode={nodes[mergePreview.sourceId]}
+                targetNode={nodes[mergePreview.targetId]}
+                onConfirm={confirmMerge}
+                onCancel={() => setMergePreview(null)}
+              />
+            )}
+
+            {showSettings && (
+              <SettingsModal
+                apiKey={apiKey}
+                setApiKey={setApiKey}
+                model={model}
+                setModel={setModel}
+                onClose={() => setShowSettings(false)}
+              />
+            )}
+
+            <ErrorToast error={error} onDismiss={() => setError(null)} />
           </div>
         );
       }
 
+      // ============================================
+      // RENDER
+      // ============================================
       const container = document.getElementById("root");
       const root = ReactDOM.createRoot(container);
       root.render(<App />);
