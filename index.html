@@ -1211,7 +1211,10 @@
       // ============================================
       // UI COMPONENTS - Sidebar
       // ============================================
-      function Sidebar({ trees, activeId, onSelect, onNewChat, currentDepth, maxDepth, onJumpTo, onOpenSettings, hasApiKey, collapsed, onToggleCollapse, onClearAll }) {
+      function Sidebar({ trees, activeId, activeTreeId, onSelect, onSelectTree, onNewChat, currentDepth, maxDepth, onJumpTo, onOpenSettings, hasApiKey, collapsed, onToggleCollapse, onClearAll }) {
+        // Get the active tree for showing its hierarchy
+        const activeTree = trees.find(t => t.id === activeTreeId) || trees[0];
+
         const renderNode = (node, depth = 0) => (
           <li key={node.id}>
             <div className="tree-branch">
@@ -1236,6 +1239,15 @@
             )}
           </li>
         );
+
+        // Count total messages in a tree (recursive)
+        const countMessages = (node) => {
+          let count = node.messages?.length || 0;
+          (node.children || []).forEach(child => {
+            count += countMessages(child);
+          });
+          return count;
+        };
 
         if (collapsed) {
           return (
@@ -1279,13 +1291,35 @@
                 + New Thread
               </button>
             </div>
-            <DepthMeter currentDepth={currentDepth} maxDepth={maxDepth} />
-            <FoundationMap trees={trees} onJumpTo={onJumpTo} />
-            <div className="tree-list-container">
-              <ul className="tree-list">
-                {trees.map(t => renderNode(t, 0))}
-              </ul>
+
+            {/* Thread list - like conversation switcher */}
+            <div className="thread-list">
+              <div className="section-label">Threads</div>
+              {trees.map(t => (
+                <div
+                  key={t.id}
+                  className={`thread-item ${t.id === activeTreeId ? 'active' : ''}`}
+                  onClick={() => onSelectTree(t.id)}
+                >
+                  <div className="thread-title">{t.title}</div>
+                  <div className="thread-meta">{countMessages(t)} messages</div>
+                </div>
+              ))}
             </div>
+
+            <DepthMeter currentDepth={currentDepth} maxDepth={maxDepth} />
+            <FoundationMap trees={[activeTree].filter(Boolean)} onJumpTo={onJumpTo} />
+
+            {/* Current tree hierarchy */}
+            {activeTree && (
+              <div className="tree-list-container">
+                <div className="section-label">Current Tree</div>
+                <ul className="tree-list">
+                  {renderNode(activeTree, 0)}
+                </ul>
+              </div>
+            )}
+
             <div className="sidebar-footer">
               <button className="ghost-btn clear-all-btn" onClick={onClearAll}>
                 Clear All Data
@@ -2243,6 +2277,12 @@
           const saved = localStorage.getItem(STORAGE_KEY_ACTIVE);
           return saved || "root";
         });
+
+        // Track which top-level tree is currently visible
+        const [activeTreeId, setActiveTreeId] = useState(() => {
+          const saved = localStorage.getItem("fork_active_tree");
+          return saved || "root";
+        });
         const [showPanel, setShowPanel] = useState(false);
         const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
         const [mergePreview, setMergePreview] = useState(null);
@@ -2299,6 +2339,30 @@
           localStorage.setItem(STORAGE_KEY_ACTIVE, activeId);
         }, [activeId]);
 
+        // Save activeTreeId to localStorage and reset canvas when switching trees
+        useEffect(() => {
+          localStorage.setItem("fork_active_tree", activeTreeId);
+          // Reset canvas position when switching trees
+          setTransform({ x: 0, y: 0, scale: 1 });
+        }, [activeTreeId]);
+
+        // Validate activeTreeId exists, fall back to first tree if not
+        useEffect(() => {
+          const treeIds = Object.keys(nodes).filter(id => nodes[id].parentId === null);
+          if (treeIds.length > 0 && !treeIds.includes(activeTreeId)) {
+            setActiveTreeId(treeIds[0]);
+          }
+        }, [nodes, activeTreeId]);
+
+        // Helper: Find which top-level tree a node belongs to
+        const findRootTreeId = (nodeId) => {
+          let current = nodes[nodeId];
+          while (current && current.parentId !== null) {
+            current = nodes[current.parentId];
+          }
+          return current?.id || null;
+        };
+
         // Build enriched tree (supports multiple top-level threads)
         const trees = useMemo(() => {
           const childrenMap = {};
@@ -2330,37 +2394,29 @@
             .map(node => attach(node, 0));
         }, [nodes]);
 
+        // Get the currently active tree (single tree view)
+        const activeTree = useMemo(() => {
+          return trees.find(t => t.id === activeTreeId) || trees[0] || null;
+        }, [trees, activeTreeId]);
+
         // For backwards compatibility, also expose single tree
-        const tree = trees[0] || null;
+        const tree = activeTree;
 
-        // Calculate positions for canvas (handles multiple trees)
+        // Calculate positions for canvas (single active tree only)
         const positions = useMemo(() => {
-          const allPositions = {};
-          let xOffset = 50;
+          if (!activeTree) return {};
+          const treePositions = calculateTreeLayout(activeTree);
 
-          trees.forEach((t) => {
-            if (!t) return;
-            const treePositions = calculateTreeLayout(t);
-
-            // Find the width of this tree
-            let maxX = 0;
-            Object.entries(treePositions).forEach(([id, pos]) => {
-              maxX = Math.max(maxX, pos.x + NODE_WIDTH);
-            });
-
-            // Add positions with offset
-            Object.entries(treePositions).forEach(([id, pos]) => {
-              allPositions[id] = {
-                ...pos,
-                x: pos.x + xOffset - 100, // Adjust for the 100 starting offset in calculateTreeLayout
-              };
-            });
-
-            xOffset += maxX + HORIZONTAL_GAP;
+          // Adjust positions to start from left edge
+          const adjusted = {};
+          Object.entries(treePositions).forEach(([id, pos]) => {
+            adjusted[id] = {
+              ...pos,
+              x: pos.x - 50, // Center the tree better
+            };
           });
-
-          return allPositions;
-        }, [trees]);
+          return adjusted;
+        }, [activeTree]);
 
         // Flatten tree for lookups
         const flattenTree = (node, depth = 0) => {
@@ -2456,14 +2512,13 @@
 
           console.log("[handleSend] Node:", id, "Depth:", depth, "Messages in history:", conversationHistory.length);
 
-          setIsLoading(true);
-          setError(null);
-
-          // Now add messages to UI (these won't affect our conversationHistory)
-          addMessages(id, [{ role: "user", text }]);
-          addMessages(id, [{ role: "assistant", text: "", isStreaming: true }]);
-
           try {
+            setIsLoading(true);
+            setError(null);
+
+            // Now add messages to UI (these won't affect our conversationHistory)
+            addMessages(id, [{ role: "user", text }]);
+            addMessages(id, [{ role: "assistant", text: "", isStreaming: true }]);
             const isFirstMessage = node.messages.filter(m => m.role === 'user').length === 0;
             const isTopLevel = node.parentId === null;
 
@@ -2774,21 +2829,12 @@ Topic: "${node.title}"`;
 
           setNodes((prev) => ({ ...prev, [id]: newNode }));
           setActiveId(id);
+          setActiveTreeId(id); // Switch to the new tree
           setShowPanel(true);
 
-          // Calculate approximate position of new thread and snap canvas to it
-          // New threads are placed to the right of existing ones
-          let estimatedX = 50;
-          Object.keys(positions).forEach((nodeId) => {
-            const pos = positions[nodeId];
-            if (pos) {
-              estimatedX = Math.max(estimatedX, pos.x + NODE_WIDTH + HORIZONTAL_GAP);
-            }
-          });
-
-          // Center the view on the new thread
+          // Reset canvas position for new tree
           setTransform({
-            x: -estimatedX + 100,
+            x: 0,
             y: 0,
             scale: 1,
           });
@@ -2962,6 +3008,11 @@ Topic: "${node.title}"`;
 
         const selectNode = (id) => {
           setActiveId(id);
+          // Also switch to the tree containing this node
+          const rootId = findRootTreeId(id);
+          if (rootId && rootId !== activeTreeId) {
+            setActiveTreeId(rootId);
+          }
           setShowPanel(true);
         };
 
@@ -2974,7 +3025,13 @@ Topic: "${node.title}"`;
             <Sidebar
               trees={trees}
               activeId={activeId}
+              activeTreeId={activeTreeId}
               onSelect={selectNode}
+              onSelectTree={(treeId) => {
+                setActiveTreeId(treeId);
+                setActiveId(treeId);
+                setShowPanel(true);
+              }}
               onNewChat={handleNewChat}
               currentDepth={currentDepth}
               maxDepth={maxDepth}
@@ -2988,7 +3045,7 @@ Topic: "${node.title}"`;
 
             <div className="main-area">
               <TreeCanvas
-                trees={trees}
+                trees={activeTree ? [activeTree] : []}
                 activeId={activeId}
                 onSelect={selectNode}
                 positions={positions}
